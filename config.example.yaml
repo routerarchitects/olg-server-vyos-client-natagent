@@ -1,0 +1,76 @@
+agent:
+  name: vyos-nats-agent
+  version: 0.1.0
+  target: vyos
+  state_file: /var/lib/vyos-nats-agent/state.json
+
+  renderer:
+    mode: placeholder
+
+  apply:
+    mode: placeholder
+    save_after_commit: true
+
+  actions:
+    enabled:
+      - trace
+
+agentcore:
+  nats:
+    servers:
+      - nats://127.0.0.1:4222
+    client_name: vyos-nats-agent
+    credentials_file: ""
+    nkey_seed_file: ""
+    user_jwt_file: ""
+    username: ""
+    password: ""
+    token: ""
+    connect_timeout: 5s
+    retry_on_failed_connect: false
+    max_reconnects: -1
+    reconnect_wait: 2s
+    reconnect_buf_size: 0
+    tls:
+      enabled: false
+      insecure_skip_verify: false
+      ca_file: ""
+      cert_file: ""
+      key_file: ""
+      server_name: ""
+
+  jetstream:
+    domain: ""
+    api_prefix: ""
+    default_timeout: 5s
+
+  subjects:
+    configure_pattern: cmd.configure.%s
+    action_pattern: cmd.action.%s.%s
+    result_pattern: result.%s
+    status_pattern: status.%s
+    health_pattern: health.%s
+
+  kv:
+    bucket: cfg_desired
+    key_pattern: desired.%s
+    auto_create_bucket: true
+    history: 5
+    ttl: 0s
+    max_value_size: 0
+    storage: file
+    replicas: 1
+
+  timeouts:
+    publish_timeout: 5s
+    subscribe_timeout: 5s
+    kv_timeout: 5s
+    shutdown_timeout: 10s
+    handler_warn_after: 2s
+
+  retry:
+    publish_attempts: 1
+    publish_backoff: 250ms
+
+  execution:
+    handler_mode: sync
