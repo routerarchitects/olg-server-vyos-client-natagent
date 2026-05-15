@@ -323,7 +323,7 @@ agentcore.subjects.health_pattern = health.%s
 agentcore.kv.bucket = cfg_desired
 agentcore.kv.key_pattern = desired.%s
 agentcore.kv.auto_create_bucket = true
-agentcore.kv.history = 5
+agentcore.kv.history = 1
 agentcore.kv.storage = file
 agentcore.kv.replicas = 1
 

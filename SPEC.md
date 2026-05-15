@@ -212,6 +212,22 @@ For milestone 1, KV history is intentionally `1` because the agent converges fro
 the latest desired config UUID and local applied UUID comparison, not historical
 KV revisions.
 
+### KV bucket ownership
+
+The VyOS agent needs KV settings so it can load the latest desired config, but production bucket creation should be owned by the controller/provisioning side.
+
+`agentcore.kv.auto_create_bucket: true` is intended for local development and integration tests.
+
+Production VyOS agents should normally use:
+
+```yaml
+agentcore:
+  kv:
+    auto_create_bucket: false
+```
+
+and bind to an existing JetStream KV bucket created by the controller/provisioning workflow.
+
 ## 10. Duration handling
 
 The YAML config must use human-readable duration strings.

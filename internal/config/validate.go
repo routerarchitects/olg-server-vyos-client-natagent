@@ -142,17 +142,19 @@ func (c AppConfig) Validate() error {
 }
 
 func validateSubjectPattern(fieldName string, pattern string, placeholders int) error {
-	trimmed := strings.TrimSpace(pattern)
-	if trimmed == "" {
+	if pattern == "" {
 		return fmt.Errorf("%s is required", fieldName)
 	}
-	if err := validateNoWhitespace(fieldName, trimmed); err != nil {
+	if strings.TrimSpace(pattern) != pattern {
+		return fmt.Errorf("%s must not contain leading or trailing whitespace", fieldName)
+	}
+	if err := validateNoWhitespace(fieldName, pattern); err != nil {
 		return err
 	}
-	if strings.ContainsAny(trimmed, "*>") {
+	if strings.ContainsAny(pattern, "*>") {
 		return fmt.Errorf("%s must not contain wildcard tokens * or >", fieldName)
 	}
-	if err := validateFormatPlaceholders(fieldName, trimmed, placeholders); err != nil {
+	if err := validateFormatPlaceholders(fieldName, pattern, placeholders); err != nil {
 		return err
 	}
 	return nil
@@ -160,14 +162,16 @@ func validateSubjectPattern(fieldName string, pattern string, placeholders int) 
 
 func validateKeyPattern(pattern string) error {
 	fieldName := "agentcore.kv.key_pattern"
-	trimmed := strings.TrimSpace(pattern)
-	if trimmed == "" {
+	if pattern == "" {
 		return fmt.Errorf("%s is required", fieldName)
 	}
-	if err := validateNoWhitespace(fieldName, trimmed); err != nil {
+	if strings.TrimSpace(pattern) != pattern {
+		return fmt.Errorf("%s must not contain leading or trailing whitespace", fieldName)
+	}
+	if err := validateNoWhitespace(fieldName, pattern); err != nil {
 		return err
 	}
-	if err := validateFormatPlaceholders(fieldName, trimmed, 1); err != nil {
+	if err := validateFormatPlaceholders(fieldName, pattern, 1); err != nil {
 		return err
 	}
 	return nil

@@ -46,7 +46,7 @@ func DefaultAppConfig() AppConfig {
 				Bucket:           "cfg_desired",
 				KeyPattern:       "desired.%s",
 				AutoCreateBucket: true,
-				History:          5,
+				History:          1,
 				Storage:          "file",
 				Replicas:         1,
 			},

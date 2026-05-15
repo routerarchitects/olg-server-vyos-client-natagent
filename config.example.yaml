@@ -54,6 +54,8 @@ agentcore:
   kv:
     bucket: cfg_desired
     key_pattern: desired.%s
+    # Dev/test friendly. Production VyOS agents should normally use false
+    # and bind to a bucket created by controller/provisioning.
     auto_create_bucket: true
     history: 1
     ttl: 0s
