@@ -4,6 +4,11 @@ agent:
   target: vyos
   state_file: /var/lib/vyos-nats-agent/state.json
 
+  logging:
+    enabled: true
+    level: info
+    format: text
+
   renderer:
     mode: placeholder
 

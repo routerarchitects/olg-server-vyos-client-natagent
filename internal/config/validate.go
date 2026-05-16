@@ -14,6 +14,16 @@ func (c AppConfig) Validate() error {
 	if strings.TrimSpace(c.Agent.StateFile) == "" {
 		return fmt.Errorf("agent.state_file is required")
 	}
+	switch c.Agent.Logging.Level {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("agent.logging.level must be one of debug, info, warn, error")
+	}
+	switch c.Agent.Logging.Format {
+	case "text", "json":
+	default:
+		return fmt.Errorf("agent.logging.format must be one of text, json")
+	}
 	if c.Agent.Renderer.Mode != "placeholder" {
 		return fmt.Errorf("agent.renderer.mode must be placeholder")
 	}

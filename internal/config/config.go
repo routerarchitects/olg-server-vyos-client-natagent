@@ -10,9 +10,16 @@ type AgentConfig struct {
 	Version   string         `yaml:"version"`
 	Target    string         `yaml:"target"`
 	StateFile string         `yaml:"state_file"`
+	Logging   LoggingConfig  `yaml:"logging"`
 	Renderer  RendererConfig `yaml:"renderer"`
 	Apply     ApplyConfig    `yaml:"apply"`
 	Actions   ActionsConfig  `yaml:"actions"`
+}
+
+type LoggingConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Level   string `yaml:"level"`
+	Format  string `yaml:"format"`
 }
 
 type RendererConfig struct {

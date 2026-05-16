@@ -12,6 +12,11 @@ func DefaultAppConfig() AppConfig {
 			Version:   "0.1.0",
 			Target:    "vyos",
 			StateFile: "/var/lib/vyos-nats-agent/state.json",
+			Logging: LoggingConfig{
+				Enabled: true,
+				Level:   "info",
+				Format:  "text",
+			},
 			Renderer: RendererConfig{
 				Mode: "placeholder",
 			},

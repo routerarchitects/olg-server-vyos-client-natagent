@@ -119,6 +119,11 @@ Optional sections:
 
 ```yaml
 agent:
+  logging:
+    enabled: true
+    level: info
+    format: text
+
   renderer:
     mode: placeholder
 
@@ -271,6 +276,9 @@ agent.name = vyos-nats-agent
 agent.version = 0.1.0
 agent.target = vyos
 agent.state_file = /var/lib/vyos-nats-agent/state.json
+agent.logging.enabled = true
+agent.logging.level = info
+agent.logging.format = text
 agent.renderer.mode = placeholder
 agent.apply.mode = placeholder
 agent.apply.save_after_commit = true
@@ -327,6 +335,8 @@ The config loader must reject:
 - unsupported renderer mode
 - unsupported apply mode
 - unsupported action names
+- unsupported logging level
+- unsupported logging format
 - negative timeout values where unsupported
 - invalid KV history values
 - invalid KV storage values

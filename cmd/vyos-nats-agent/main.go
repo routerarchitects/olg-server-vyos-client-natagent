@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
+	"github.com/routerarchitects/nats-agent-core/agentcore"
+	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/agent"
 	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/config"
 )
 
@@ -27,7 +32,7 @@ func runConfigCLI(args []string, stdout io.Writer, stderr io.Writer) int {
 		return code
 	}
 
-	cfg, err := loadAndValidateConfig(opts.configPath)
+	cfg, coreCfg, resolvedPath, err := loadAndConvertConfig(opts.configPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n", err)
 		return 1
@@ -45,7 +50,33 @@ func runConfigCLI(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 0
 	}
 
-	fmt.Fprintln(stdout, "phase 1 complete: config loader available; agent runtime not implemented yet")
+	var runtimeOpts []agent.Option
+	var lifecycleLogger agentcore.Logger
+	if cfg.Agent.Logging.Enabled {
+		lifecycleLogger, err = agent.NewLogger(cfg.Agent.Logging, stderr)
+		if err != nil {
+			fmt.Fprintf(stderr, "failed to configure logger: %v\n", err)
+			return 1
+		}
+		runtimeOpts = append(runtimeOpts, agent.WithLogger(lifecycleLogger))
+		lifecycleLogger.Info("config loaded", "path", resolvedPath, "target", cfg.Agent.Target)
+		lifecycleLogger.Info("agentcore config prepared", "target", cfg.Agent.Target)
+	}
+
+	runtime, err := agent.New(cfg, coreCfg, runtimeOpts...)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to create runtime: %v\n", err)
+		return 1
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := runtime.Run(ctx); err != nil {
+		fmt.Fprintf(stderr, "runtime error: %v\n", err)
+		return 1
+	}
+
 	return 0
 }
 
@@ -72,16 +103,17 @@ func parseCLIArgs(args []string, stdout io.Writer, stderr io.Writer) (cliOptions
 	return opts, 0, false
 }
 
-func loadAndValidateConfig(configPath string) (*config.AppConfig, error) {
-	cfg, _, err := config.LoadResolved(configPath)
+func loadAndConvertConfig(configPath string) (*config.AppConfig, agentcore.Config, string, error) {
+	cfg, resolvedPath, err := config.LoadResolved(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, agentcore.Config{}, "", fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if _, err := cfg.ToAgentCoreConfig(); err != nil {
-		return nil, fmt.Errorf("failed to convert config to agentcore.Config: %w", err)
+	coreCfg, err := cfg.ToAgentCoreConfig()
+	if err != nil {
+		return nil, agentcore.Config{}, "", fmt.Errorf("failed to convert config to agentcore.Config: %w", err)
 	}
-	return cfg, nil
+	return cfg, coreCfg, resolvedPath, nil
 }
 
 func printEffectiveConfig(w io.Writer, cfg config.AppConfig) error {
@@ -108,7 +140,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  2. VYOS_NATS_AGENT_CONFIG")
 	fmt.Fprintln(w, "  3. /etc/vyos-nats-agent/config.yaml")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Phase 1 behavior:")
-	fmt.Fprintln(w, "  This binary only loads, validates, prints, and converts configuration.")
-	fmt.Fprintln(w, "  It does not connect to NATS or start the agent runtime yet.")
+	fmt.Fprintln(w, "Phase 2 behavior:")
+	fmt.Fprintln(w, "  --validate-config: only load, validate, print, and convert configuration.")
+	fmt.Fprintln(w, "  default run: start agentcore client, register handlers, and run until SIGINT/SIGTERM.")
 }

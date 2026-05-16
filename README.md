@@ -179,9 +179,46 @@ go run ./cmd/vyos-nats-agent --config ./config.example.yaml --validate-config
 go test -count=1 -v -tags=integration ./tests/integration/...
 ```
 
+## Phase 2 smoke scripts
+
+Action smoke:
+
+```bash
+./tests/scripts/phase2-real-nats-action-smoke.sh
+```
+
+Expected success marker:
+
+```text
+[PASS] Phase 2 real-NATS action smoke test passed
+```
+
+Configure smoke:
+
+```bash
+./tests/scripts/phase2-real-nats-configure-smoke.sh
+```
+
+Expected success marker:
+
+```text
+[PASS] Phase 2 real-NATS configure smoke test passed
+```
+
+Optional debug output for either smoke script:
+
+```bash
+PRINT_LOGS_ON_PASS=true KEEP_SMOKE_ARTIFACTS=true ./tests/scripts/phase2-real-nats-action-smoke.sh
+```
+
+`PRINT_LOGS_ON_PASS=true` prints NATS/agent/controller logs on success.  
+`KEEP_SMOKE_ARTIFACTS=true` keeps temporary files and prints the artifact directory path.
+
 ## Binary usage
 
-The Phase 1 binary only supports configuration loading, validation, and safe effective-config printing. It does not connect to NATS yet and does not start the agent runtime.
+The current binary supports Phase 2 lifecycle behavior:
+- validation-only mode with safe effective-config printing
+- long-running runtime mode using `nats-agent-core` (`Start`, handler registration, status publish, graceful `Close`)
 
 ```bash
 go run ./cmd/vyos-nats-agent --config ./config.example.yaml --validate-config
@@ -206,15 +243,16 @@ The config file path is resolved in this order:
 3. /etc/vyos-nats-agent/config.yaml
 ```
 
-### Current Phase 1 behavior
+### Current Phase 2 behavior
 
-Running the binary without `--validate-config` still loads and validates the config, but only prints:
-
-```text
-phase 1 complete: config loader available; agent runtime not implemented yet
-```
+Running without `--validate-config` loads config, converts to `agentcore.Config`, creates the runtime, registers configure/action handlers, starts `agentcore`, publishes startup status, then waits for `SIGINT`/`SIGTERM` and shuts down gracefully.
 
 `--print-effective-config` prints the effective config as YAML after defaults and YAML overlay. Sensitive values are redacted as `********`, and the converted `agentcore.Config` is not printed.
+
+Logging is configured under `agent.logging`:
+- `enabled`: `true|false`
+- `level`: `debug|info|warn|error`
+- `format`: `text|json`
 
 ```bash
 go run ./cmd/vyos-nats-agent \
@@ -223,7 +261,7 @@ go run ./cmd/vyos-nats-agent \
   --validate-config
 ```
 
-The runtime lifecycle, NATS connection, configure handlers, action handlers, renderer, apply engine, and local state store are intentionally not implemented in Phase 1.
+`--validate-config` still exits without creating or starting the `agentcore` client.
 
 ## Design principle
 
