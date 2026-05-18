@@ -62,7 +62,7 @@ func (r *Runtime) handleAction(ctx context.Context, msg agentcore.ActionCommand)
 		Action:      msg.Action,
 		Result:      "failure",
 		ErrorCode:   "not_implemented",
-		Message:     "action execution is not implemented in Phase 2",
+		Message:     "action execution is not implemented yet",
 		Timestamp:   r.now().UTC(),
 	}
 	if err := r.client.PublishResult(ctx, result); err != nil {

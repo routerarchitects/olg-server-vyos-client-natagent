@@ -205,14 +205,15 @@ Expected success marker:
 [PASS] Phase 3 real-NATS configure smoke test passed
 ```
 
-Optional debug output for either smoke script:
+Optional debug output for Phase 3 configure smoke:
 
 ```bash
-PRINT_LOGS_ON_PASS=true KEEP_SMOKE_ARTIFACTS=true ./tests/scripts/phase2-real-nats-action-smoke.sh
+PRINT_LOGS_ON_PASS=true KEEP_SMOKE_ARTIFACTS=true NATS_PORT=4223 ./tests/scripts/phase3-real-nats-configure-smoke.sh
 ```
 
 `PRINT_LOGS_ON_PASS=true` prints NATS/agent/controller logs on success.  
 `KEEP_SMOKE_ARTIFACTS=true` keeps temporary files and prints the artifact directory path.
+`NATS_PORT=4223` is optional and helps avoid conflicts when `4222` is already in use.
 
 ## Binary usage
 

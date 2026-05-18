@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/routerarchitects/nats-agent-core/agentcore"
@@ -21,6 +22,7 @@ type Service struct {
 	applyEngine ApplyEngine
 	logger      agentcore.Logger
 	now         func() time.Time
+	mu          sync.Mutex
 }
 
 type Dependencies struct {
@@ -63,6 +65,11 @@ func (s *Service) Handle(ctx context.Context, msg agentcore.ConfigureNotificatio
 	if ctx == nil {
 		return errors.New("configure handle: context is nil")
 	}
+
+	// Serialize configure processing so local applied UUID load/apply/save remains ordered.
+	// Future multi-target support can replace this with per-target locking.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if err := s.publishStatus(ctx, msg, "running", "received", "configure notification received"); err != nil {
 		return s.fail(ctx, msg, "status_publish_failed", "configure processing failed", fmt.Errorf("publish configure status received: %w", err))

@@ -11,6 +11,18 @@ set -euo pipefail
 # - verifies state file contains applied_uuid
 # - submits same UUID again and expects already_in_sync success result
 # - stops agent with SIGINT and verifies graceful shutdown
+#
+# Usage:
+#   ./tests/scripts/phase3-real-nats-configure-smoke.sh
+#
+# Optional environment variables:
+#   NATS_PORT=4223                Use a non-default NATS port if 4222 is busy.
+#   PRINT_LOGS_ON_PASS=true       Print nats-server / agent / controller logs on success.
+#   KEEP_SMOKE_ARTIFACTS=true     Keep temporary files and print their directory path.
+#
+# Example:
+#   PRINT_LOGS_ON_PASS=true KEEP_SMOKE_ARTIFACTS=true NATS_PORT=4223 \
+#     ./tests/scripts/phase3-real-nats-configure-smoke.sh
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
@@ -425,4 +437,3 @@ fi
 if [[ "${KEEP_SMOKE_ARTIFACTS}" == "true" ]]; then
   echo "[INFO] kept smoke artifacts at ${WORK_DIR}"
 fi
-
