@@ -2,7 +2,7 @@
 
 `vyos-nats-agent` is a Go daemon that runs inside or near the VyOS environment and uses `nats-agent-core` for NATS, JetStream KV, command handling, and result/status publishing.
 
-The first milestone is intentionally minimal: prove the end-to-end configure and action flow with placeholder VyOS renderer/apply logic before integrating real VyOS rendering or command execution.
+The first milestone is intentionally minimal: prove configure lifecycle behavior end to end with placeholder VyOS renderer/apply logic, while keeping action behavior in placeholder mode until a later phase.
 
 ## What this agent does
 
@@ -16,6 +16,7 @@ The first milestone is intentionally minimal: prove the end-to-end configure and
 - Sends the desired payload through a placeholder renderer.
 - Sends rendered config through a placeholder apply engine.
 - Stores the last successfully applied config UUID locally.
+- Publishes placeholder action failure (`not_implemented`) for `trace` in current phase.
 - Publishes result and status messages to the bus.
 
 ## What is out of scope for the first milestone
@@ -91,6 +92,12 @@ State example:
 ```
 
 The state file must only be updated after a successful apply.
+
+### Apply success with state-save failure
+
+The agent updates local `applied_uuid` only after apply succeeds. If apply succeeds but saving local state fails, the agent reports configure failure and does not checkpoint the UUID. A later retry may re-process the same desired config.
+
+This is acceptable for the Phase 3 placeholder apply path. Before real VyOS apply is introduced, apply behavior should be idempotent and/or include a verification step so retries after state-save failure do not produce unsafe duplicate effects.
 
 ## Minimal repository layout
 
@@ -175,13 +182,9 @@ go test ./...
 go run ./cmd/vyos-nats-agent --config ./config.example.yaml --validate-config
 ```
 
-```bash
-go test -count=1 -v -tags=integration ./tests/integration/...
-```
-
 ## Phase smoke scripts
 
-Phase 2 action smoke:
+Phase 2 action smoke (current action placeholder behavior):
 
 ```bash
 ./tests/scripts/phase2-real-nats-action-smoke.sh
@@ -214,6 +217,12 @@ PRINT_LOGS_ON_PASS=true KEEP_SMOKE_ARTIFACTS=true NATS_PORT=4223 ./tests/scripts
 `PRINT_LOGS_ON_PASS=true` prints NATS/agent/controller logs on success.  
 `KEEP_SMOKE_ARTIFACTS=true` keeps temporary files and prints the artifact directory path.
 `NATS_PORT=4223` is optional and helps avoid conflicts when `4222` is already in use.
+
+Config validation script:
+
+```bash
+./tests/scripts/validate-config.sh
+```
 
 ## Binary usage
 
@@ -253,6 +262,10 @@ Configure handling in this phase loads desired config through `LoadDesiredConfig
 - publishes `already_in_sync` success when desired UUID already matches local `applied_uuid`
 - otherwise runs placeholder render/apply, updates local state after apply succeeds, and publishes configure success
 - publishes configure failure status/result with stable error codes on workflow failures
+
+Action handling in the current phase remains placeholder behavior:
+- `trace` action returns failure with `error_code=not_implemented`
+- no real trace command execution, shell execution, or network probing is performed
 
 `--print-effective-config` prints the effective config as YAML after defaults and YAML overlay. Sensitive values are redacted as `********`, and the converted `agentcore.Config` is not printed.
 

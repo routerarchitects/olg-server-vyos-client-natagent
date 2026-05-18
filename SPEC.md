@@ -547,6 +547,18 @@ Rules:
 - milestone 1 converges from only the latest desired config (`history = 1`) and
   does not depend on historical KV revisions
 
+### Apply success with state-save failure
+
+The agent updates local `applied_uuid` only after apply succeeds. If apply
+succeeds but saving local state fails, the agent reports configure failure and
+does not checkpoint the UUID. A later retry may re-process the same desired
+config.
+
+This is acceptable for the Phase 3 placeholder apply path. Before real VyOS
+apply is introduced, apply behavior should be idempotent and/or include a
+verification step so retries after state-save failure do not produce unsafe
+duplicate effects.
+
 ## 22. Result publishing
 
 Every accepted configure/action request must publish a final result.

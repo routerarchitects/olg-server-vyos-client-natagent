@@ -95,7 +95,7 @@ func (s *FileStore) Save(ctx context.Context, st State) error {
 		cleanup()
 		return fmt.Errorf("sync temp state file %q: %w", tmpName, err)
 	}
-	if err := tmpFile.Chmod(0o644); err != nil {
+	if err := tmpFile.Chmod(0o600); err != nil {
 		_ = tmpFile.Close()
 		cleanup()
 		return fmt.Errorf("chmod temp state file %q: %w", tmpName, err)
