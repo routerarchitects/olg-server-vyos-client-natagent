@@ -726,6 +726,11 @@ Use public `agentcore` APIs for controller-side behavior.
 6. Agent updates local applied UUID.
 ```
 
+Current repository smoke scripts:
+
+- `tests/scripts/phase3-real-nats-configure-smoke.sh`
+- `tests/scripts/phase4-real-nats-action-smoke.sh`
+
 ## 27. Development phases
 
 ### Phase 1: Bootstrap and config loader

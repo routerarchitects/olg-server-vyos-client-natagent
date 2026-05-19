@@ -45,36 +45,8 @@ func (r *Runtime) handleAction(ctx context.Context, msg agentcore.ActionCommand)
 		"action", msg.Action,
 		"rpc_id", msg.RPCID,
 	)
-	r.logInfo(
-		"action handler placeholder result publishing",
-		"target", msg.Target,
-		"action", msg.Action,
-		"rpc_id", msg.RPCID,
-		"stage", "action",
-		"status", "not_implemented",
-	)
-
-	result := agentcore.ResultEnvelope{
-		Version:     wireVersion,
-		RPCID:       msg.RPCID,
-		Target:      msg.Target,
-		CommandType: "action",
-		Action:      msg.Action,
-		Result:      "failure",
-		ErrorCode:   "not_implemented",
-		Message:     "action execution is not implemented yet",
-		Timestamp:   r.now().UTC(),
+	if r.actionService == nil {
+		return fmt.Errorf("action service is not initialized")
 	}
-	if err := r.client.PublishResult(ctx, result); err != nil {
-		r.logError(
-			"action handler result publish failed",
-			"target", msg.Target,
-			"action", msg.Action,
-			"rpc_id", msg.RPCID,
-			"error", err,
-		)
-		return fmt.Errorf("publish action placeholder result: %w", err)
-	}
-
-	return nil
+	return r.actionService.Handle(ctx, msg)
 }

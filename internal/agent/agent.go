@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/routerarchitects/nats-agent-core/agentcore"
+	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/actions"
 	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/apply"
 	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/config"
 	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/configure"
@@ -17,7 +18,7 @@ const (
 	wireVersion = "1.0"
 )
 
-// Runtime owns the Phase 2 agent lifecycle around an agentcore.Client.
+// Runtime owns agent lifecycle wiring around an agentcore client and delegates configure/action handling.
 type Runtime struct {
 	appConfig  *config.AppConfig
 	coreConfig agentcore.Config
@@ -26,6 +27,7 @@ type Runtime struct {
 	now        func() time.Time
 
 	configureService *configure.Service
+	actionService    *actions.Service
 
 	mu      sync.Mutex
 	started bool
@@ -109,6 +111,19 @@ func New(appCfg *config.AppConfig, coreCfg agentcore.Config, opts ...Option) (*R
 	if err != nil {
 		return nil, fmt.Errorf("create configure service: %w", err)
 	}
+	traceExecutor := actions.NewPlaceholderTraceExecutor()
+	actionService, err := actions.NewService(actions.Dependencies{
+		Client:  client,
+		Logger:  options.logger,
+		Now:     options.now,
+		Enabled: appCfg.Agent.Actions.Enabled,
+		Executors: map[string]actions.Executor{
+			actions.ActionTrace: traceExecutor,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create action service: %w", err)
+	}
 
 	r := &Runtime{
 		appConfig:        appCfg,
@@ -117,6 +132,7 @@ func New(appCfg *config.AppConfig, coreCfg agentcore.Config, opts ...Option) (*R
 		logger:           options.logger,
 		now:              options.now,
 		configureService: configureService,
+		actionService:    actionService,
 	}
 	r.logInfo("agentcore client created", "target", r.appConfig.Agent.Target)
 	return r, nil

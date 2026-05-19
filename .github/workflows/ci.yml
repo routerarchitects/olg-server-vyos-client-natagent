@@ -45,7 +45,7 @@ jobs:
     name: Smoke Tests
     runs-on: ubuntu-latest
     needs: test-and-build
-    timeout-minutes: 5
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -71,10 +71,10 @@ jobs:
       - name: Validate config script
         run: ./tests/scripts/validate-config.sh
 
-      - name: Phase 2 action smoke
-        timeout-minutes: 2
-        run: NATS_PORT=4223 ./tests/scripts/phase2-real-nats-action-smoke.sh
-
       - name: Phase 3 configure smoke
-        timeout-minutes: 2
-        run: NATS_PORT=4224 ./tests/scripts/phase3-real-nats-configure-smoke.sh
+        timeout-minutes: 5
+        run: NATS_PORT=4223 ./tests/scripts/phase3-real-nats-configure-smoke.sh
+
+      - name: Phase 4 action smoke
+        timeout-minutes: 5
+        run: NATS_PORT=4224 ./tests/scripts/phase4-real-nats-action-smoke.sh

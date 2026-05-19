@@ -2,7 +2,7 @@
 
 `vyos-nats-agent` is a Go daemon that runs inside or near the VyOS environment and uses `nats-agent-core` for NATS, JetStream KV, command handling, and result/status publishing.
 
-The first milestone is intentionally minimal: prove configure lifecycle behavior end to end with placeholder VyOS renderer/apply logic, while keeping action behavior in placeholder mode until a later phase.
+The first milestone is intentionally minimal: prove configure and action lifecycle behavior end to end with placeholder VyOS renderer/apply/action logic.
 
 ## What this agent does
 
@@ -16,7 +16,7 @@ The first milestone is intentionally minimal: prove configure lifecycle behavior
 - Sends the desired payload through a placeholder renderer.
 - Sends rendered config through a placeholder apply engine.
 - Stores the last successfully applied config UUID locally.
-- Publishes placeholder action failure (`not_implemented`) for `trace` in current phase.
+- Publishes placeholder action status/result for `trace`.
 - Publishes result and status messages to the bus.
 
 ## What is out of scope for the first milestone
@@ -179,21 +179,30 @@ go test ./...
 ```
 
 ```bash
+UNFORMATTED=$(gofmt -l $(find . -type f -name '*.go' -not -path './.git/*'))
+test -z "$UNFORMATTED"
+```
+
+```bash
+go build ./...
+```
+
+```bash
 go run ./cmd/vyos-nats-agent --config ./config.example.yaml --validate-config
 ```
 
 ## Phase smoke scripts
 
-Phase 2 action smoke (current action placeholder behavior):
+Phase 4 action smoke:
 
 ```bash
-./tests/scripts/phase2-real-nats-action-smoke.sh
+./tests/scripts/phase4-real-nats-action-smoke.sh
 ```
 
 Expected success marker:
 
 ```text
-[PASS] Phase 2 real-NATS action smoke test passed
+[PASS] Phase 4 real-NATS action smoke test passed
 ```
 
 Configure smoke:
@@ -208,10 +217,10 @@ Expected success marker:
 [PASS] Phase 3 real-NATS configure smoke test passed
 ```
 
-Optional debug output for Phase 3 configure smoke:
+Optional debug output for Phase 4 action smoke:
 
 ```bash
-PRINT_LOGS_ON_PASS=true KEEP_SMOKE_ARTIFACTS=true NATS_PORT=4223 ./tests/scripts/phase3-real-nats-configure-smoke.sh
+PRINT_LOGS_ON_PASS=true KEEP_SMOKE_ARTIFACTS=true NATS_PORT=4223 ./tests/scripts/phase4-real-nats-action-smoke.sh
 ```
 
 `PRINT_LOGS_ON_PASS=true` prints NATS/agent/controller logs on success.  
@@ -224,12 +233,24 @@ Config validation script:
 ./tests/scripts/validate-config.sh
 ```
 
+## CI coverage
+
+`.github/workflows/ci.yml` currently validates:
+
+- `gofmt` formatting check
+- `go test ./...`
+- `go build ./...`
+- `./tests/scripts/validate-config.sh`
+- `./tests/scripts/phase3-real-nats-configure-smoke.sh`
+- `./tests/scripts/phase4-real-nats-action-smoke.sh`
+
 ## Binary usage
 
-The current binary supports Phase 3 behavior:
+The current binary supports Phase 4 behavior:
 - validation-only mode with safe effective-config printing
 - long-running runtime mode using `nats-agent-core` (`Start`, handler registration, status publish, graceful `Close`)
 - configure workflow using `LoadDesiredConfig(ctx, target)`, placeholder render/apply, and local applied UUID state updates after successful apply
+- action workflow for `trace` using a placeholder executor, with action status/result publishing
 
 ```bash
 go run ./cmd/vyos-nats-agent --config ./config.example.yaml --validate-config
@@ -254,7 +275,7 @@ The config file path is resolved in this order:
 3. /etc/vyos-nats-agent/config.yaml
 ```
 
-### Current Phase 3 behavior
+### Current Phase 4 behavior
 
 Running without `--validate-config` loads config, converts to `agentcore.Config`, creates the runtime, registers configure/action handlers, starts `agentcore`, publishes startup status, then waits for `SIGINT`/`SIGTERM` and shuts down gracefully.
 
@@ -263,9 +284,11 @@ Configure handling in this phase loads desired config through `LoadDesiredConfig
 - otherwise runs placeholder render/apply, updates local state after apply succeeds, and publishes configure success
 - publishes configure failure status/result with stable error codes on workflow failures
 
-Action handling in the current phase remains placeholder behavior:
-- `trace` action returns failure with `error_code=not_implemented`
-- no real trace command execution, shell execution, or network probing is performed
+Action handling in this phase supports `trace` only:
+- validates action is enabled and supported
+- runs placeholder trace execution (no real shell/network trace behavior)
+- publishes action statuses (`received`, `executing`, `completed` or `failed`)
+- publishes final action result with placeholder payload metadata
 
 `--print-effective-config` prints the effective config as YAML after defaults and YAML overlay. Sensitive values are redacted as `********`, and the converted `agentcore.Config` is not printed.
 

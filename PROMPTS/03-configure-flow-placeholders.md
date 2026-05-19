@@ -12,7 +12,7 @@ Read the current `main` branch carefully before editing:
 - `cmd/vyos-nats-agent/main.go`
 - all files under `internal/config`
 - all files under `internal/agent`
-- `tests/scripts/phase2-real-nats-configure-smoke.sh`
+- `tests/scripts/phase3-real-nats-configure-smoke.sh`
 - `go.mod`
 
 Implement **Phase 3** of `vyos-nats-agent`: replace the Phase 2 configure-handler `not_implemented` placeholder with a real configure workflow that still uses placeholder renderer/apply implementations.
@@ -592,13 +592,11 @@ Startup reconcile can be a later sub-phase after the core configure workflow is 
 
 ## Smoke Script Update
 
-Update `tests/scripts/phase2-real-nats-configure-smoke.sh` or create a new Phase 3 script:
+Use the Phase 3 configure smoke script:
 
 ```text
 tests/scripts/phase3-real-nats-configure-smoke.sh
 ```
-
-Recommended: create a new Phase 3 script and keep the Phase 2 script if it is still useful.
 
 The Phase 3 configure smoke should:
 
