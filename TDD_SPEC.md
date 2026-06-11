@@ -470,6 +470,7 @@ This section is complete when:
 - renderer failure prevents apply,
 - apply failure prevents state save,
 - state save failure is treated as configure failure,
+- post-checkpoint reporting failure is surfaced separately from configure failure,
 - retry after failure is safe,
 - failed workflows never publish success,
 - previous state is preserved unless apply and state save both succeed.

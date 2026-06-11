@@ -641,17 +641,18 @@ func TestHandleStatusPublishFailureBehavior(t *testing.T) {
 
 /*
 TC-CONFIGURE-SERVICE-013
-Type: Negative
-Title: Handle publishes failure when success result publish fails
+Type: Safety
+Title: Handle returns reporting error when success result publish fails after save
 Summary:
 Injects failure for success result publish in the final step of happy path.
-Service should enter failure path and publish failure output with
-result_publish_failed code.
+Service should keep the saved applied UUID, avoid publishing a
+contradictory failure result, and return a reporting error to caller.
 
 Validates:
-  - failure result uses result_publish_failed
   - apply and save complete before result publish failure
-  - service returns non-nil error
+  - success status remains published
+  - no failure result is published
+  - service returns non-nil reporting error
 */
 func TestHandleResultPublishFailureBehavior(t *testing.T) {
 	msg := agentcore.ConfigureNotification{Version: "1.0", RPCID: "rpc-12", Target: "vyos", UUID: "cfg-12"}
@@ -669,19 +670,75 @@ func TestHandleResultPublishFailureBehavior(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if len(client.results) != 1 {
-		t.Fatalf("result count got=%d want=1", len(client.results))
+	if !strings.Contains(err.Error(), "apply succeeded but reporting failed") {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if client.results[0].Result != "failure" || client.results[0].ErrorCode != "result_publish_failed" {
-		t.Fatalf("unexpected failure result %+v", client.results[0])
+	if len(client.results) != 0 {
+		t.Fatalf("result count got=%d want=0", len(client.results))
+	}
+	if len(client.statuses) == 0 || client.statuses[len(client.statuses)-1].Status != "success" || client.statuses[len(client.statuses)-1].Stage != "applied" {
+		t.Fatalf("unexpected statuses %+v", client.statuses)
 	}
 	if apply.calls != 1 || store.saveCalls != 1 {
 		t.Fatalf("calls apply=%d save=%d want 1/1", apply.calls, store.saveCalls)
+	}
+	if len(store.saved) != 1 || store.saved[0].AppliedUUID != "cfg-12" {
+		t.Fatalf("saved state mismatch %+v", store.saved)
 	}
 }
 
 /*
 TC-CONFIGURE-SERVICE-014
+Type: Safety
+Title: Handle returns reporting error when success status publish fails after save
+Summary:
+Injects failure for final success status publish after apply and state save
+already succeeded. Service should keep the saved applied UUID, still try to
+publish the success result, and avoid publishing a contradictory failure.
+
+Validates:
+  - apply and save complete before success status publish failure
+  - success result is still published
+  - no failure result is published
+  - service returns non-nil reporting error
+*/
+func TestHandleSuccessStatusPublishFailureAfterSave(t *testing.T) {
+	msg := agentcore.ConfigureNotification{Version: "1.0", RPCID: "rpc-13", Target: "vyos", UUID: "cfg-13"}
+
+	client := &fakeConfigureClient{
+		desired:          newDesired("vyos", "cfg-13"),
+		statusErrByStage: map[string]error{"applied": errors.New("publish success status failed")},
+	}
+	store := &fakeStateStore{}
+	rndr := &fakeRenderer{output: renderer.Output{Target: "vyos", UUID: "cfg-13", Text: "# out"}}
+	apply := &fakeApplyEngine{}
+	svc := newConfigureServiceForTest(t, client, store, rndr, apply, time.Now)
+
+	err := svc.Handle(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "apply succeeded but reporting failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(client.results) != 1 || client.results[0].Result != "success" {
+		t.Fatalf("unexpected results %+v", client.results)
+	}
+	for _, status := range client.statuses {
+		if status.Status == "failure" {
+			t.Fatalf("unexpected failure status %+v", status)
+		}
+	}
+	if apply.calls != 1 || store.saveCalls != 1 {
+		t.Fatalf("calls apply=%d save=%d want 1/1", apply.calls, store.saveCalls)
+	}
+	if len(store.saved) != 1 || store.saved[0].AppliedUUID != "cfg-13" {
+		t.Fatalf("saved state mismatch %+v", store.saved)
+	}
+}
+
+/*
+TC-CONFIGURE-SERVICE-015
 Type: Negative
 Title: Handle rejects nil context input
 Summary:
@@ -714,7 +771,7 @@ func TestHandleRejectsNilContext(t *testing.T) {
 }
 
 /*
-TC-CONFIGURE-SERVICE-015
+TC-CONFIGURE-SERVICE-016
 Type: Positive
 Title: Handle serializes concurrent configure processing
 Summary:
@@ -821,7 +878,7 @@ func TestHandleSerializesConcurrentConfigureProcessing(t *testing.T) {
 }
 
 /*
-TC-CONFIGURE-SERVICE-016
+TC-CONFIGURE-SERVICE-017
 Type: Safety
 Title: Handle does not log raw desired payload
 Summary:

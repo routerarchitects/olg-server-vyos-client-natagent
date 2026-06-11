@@ -437,8 +437,8 @@ When the agent receives a configure notification:
    - update local applied UUID after render and apply both succeed
    - publish success result
 7. If any step fails:
-   - do not update local applied UUID
-   - publish failure result
+   - before local state save: do not update local applied UUID and publish failure result
+   - after local state save: keep local applied UUID and treat outbound reporting failure separately from configure failure
 ```
 
 ### Configure recovery model
@@ -574,6 +574,15 @@ Real-mode lab validation should include retry behavior around post-apply
 state-save failures before production rollout.
 
 In real mode, apply failures must prevent local state save. State save remains the configure service's responsibility, not the renderer/apply adapters' responsibility.
+
+### Apply success with reporting failure
+
+If apply and local state save both succeed, the desired UUID is considered
+applied locally. If final success status or success result publication fails
+after that checkpoint, the agent must not publish a contradictory configure
+failure result for the same UUID. Instead it should keep the checkpointed UUID
+and surface the problem as a reporting failure (for example through returned
+errors, warnings, or later observability hooks).
 
 ## 22. Result publishing
 

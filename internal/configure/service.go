@@ -189,15 +189,15 @@ func (s *Service) Handle(ctx context.Context, msg agentcore.ConfigureNotificatio
 	}
 	s.logInfo("configure state saved", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID)
 
-	if err := s.publishStatus(ctx, msg, "success", "applied", "configure apply completed"); err != nil {
-		return s.fail(ctx, msg, "status_publish_failed", "configure processing failed", fmt.Errorf("publish configure status applied: %w", err))
-	}
-
 	s.logInfo("configure result publishing", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "status", "success")
-	if err := s.publishSuccessResult(ctx, msg, "configure apply completed"); err != nil {
-		return s.fail(ctx, msg, "result_publish_failed", "failed to publish configure result", fmt.Errorf("publish configure success result: %w", err))
+	statusErr := publishSuccessStatusErr(s.publishStatus(ctx, msg, "success", "applied", "configure apply completed"))
+	resultErr := publishSuccessResultErr(s.publishSuccessResult(ctx, msg, "configure apply completed"))
+	if resultErr == nil {
+		s.logInfo("configure result published", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "status", "success")
 	}
-	s.logInfo("configure result published", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "status", "success")
+	if statusErr != nil || resultErr != nil {
+		return s.reportingFailure(msg, errors.Join(statusErr, resultErr))
+	}
 
 	return nil
 }
@@ -216,6 +216,33 @@ func (s *Service) fail(ctx context.Context, msg agentcore.ConfigureNotification,
 	}
 
 	return errors.Join(originalErr, statusErr, resultErr)
+}
+
+func (s *Service) reportingFailure(msg agentcore.ConfigureNotification, originalErr error) error {
+	s.logWarn(
+		"configure reporting failed after successful apply",
+		"target", msg.Target,
+		"rpc_id", msg.RPCID,
+		"uuid", msg.UUID,
+		"stage", "reporting_failed",
+		"status", "warning",
+		"error", originalErr,
+	)
+	return fmt.Errorf("configure apply succeeded but reporting failed: %w", originalErr)
+}
+
+func publishSuccessStatusErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("publish configure status applied: %w", err)
+}
+
+func publishSuccessResultErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("publish configure success result: %w", err)
 }
 
 func (s *Service) publishStatus(ctx context.Context, msg agentcore.ConfigureNotification, status, stage, message string) error {
@@ -277,6 +304,13 @@ func (s *Service) logError(msg string, kv ...any) {
 		return
 	}
 	s.logger.Error(msg, kv...)
+}
+
+func (s *Service) logWarn(msg string, kv ...any) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Warn(msg, kv...)
 }
 
 func countNonEmptyLines(text string) int {
