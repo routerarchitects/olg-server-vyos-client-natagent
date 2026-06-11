@@ -470,6 +470,7 @@ This section is complete when:
 - renderer failure prevents apply,
 - apply failure prevents state save,
 - state save failure is treated as configure failure,
+- post-checkpoint reporting failure is surfaced separately from configure failure,
 - retry after failure is safe,
 - failed workflows never publish success,
 - previous state is preserved unless apply and state save both succeed.
@@ -627,7 +628,7 @@ Ensure logs are useful but do not leak sensitive configuration, rendered command
 | LOG-001 | `TestLoggingInfoLevelDoesNotLogPayload` | P0 | Safety | Prevent payload leak | Raw payload not present in info logs |
 | LOG-002 | `TestLoggingInfoLevelDoesNotLogRenderedCommands` | P0 | Safety | Prevent command leak | Rendered commands not logged |
 | LOG-003 | `TestLoggingInfoLevelDoesNotLogApplyPlan` | P0 | Safety | Prevent plan leak | Apply plan not logged |
-| LOG-004 | `TestLoggingDebugWithPayloadFlagLogsPayload` | P1 | Positive | Explicit debug behavior | Payload logged only with debug and flag |
+| LOG-004 | `TestLoggingDebugWithPayloadFlagDoesNotLogRawPayload` | P1 | Safety | Explicit debug behavior | Payload metadata may be logged, but raw payload body is absent |
 | LOG-005 | `TestLoggingDebugWithoutPayloadFlagDoesNotLogPayload` | P0 | Safety | Debug alone is not enough | Payload not logged |
 | LOG-006 | `TestLoggingPayloadFlagWithoutDebugDoesNotLogPayload` | P0 | Safety | Flag alone is not enough | Payload not logged |
 | LOG-007 | `TestLoggingPartialDebugConfigDoesNotEmitDebugLogs` | P0 | Safety | Reviewer requirement | Debug logs not emitted unless level is debug |
@@ -641,7 +642,7 @@ Ensure logs are useful but do not leak sensitive configuration, rendered command
 This section is complete when:
 
 - no sensitive data is logged by default,
-- debug payload logging requires both debug level and explicit flag,
+- debug payload logging requires both debug level and explicit flag and emits metadata only,
 - rendered commands and apply plans are not logged by default,
 - large payloads do not crash or cause unsafe memory behavior.
 

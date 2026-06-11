@@ -9,6 +9,7 @@ import (
 
 	"github.com/routerarchitects/nats-agent-core/agentcore"
 	vyosrenderer "github.com/routerarchitects/olg-renderer-vyos/renderer"
+	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/testutil"
 )
 
 type fakeRendererBackend struct {
@@ -202,6 +203,54 @@ func TestCountNonEmptyLinesIgnoresBlankLines(t *testing.T) {
 	got := countNonEmptyLines("\nset a\n  \nset b\n\t\n")
 	if got != 2 {
 		t.Fatalf("line count got=%d want=2", got)
+	}
+}
+
+/*
+TC-RENDERER-VYOS-007
+Type: Safety
+Title: Payload debug logging omits raw payload body
+Summary:
+Runs the real renderer adapter with payload debug logging enabled and
+an input payload that contains a secret value. The adapter should log
+payload metadata only and must not emit the raw JSON body.
+
+Validates:
+  - render succeeds with payload debug logging enabled
+  - logs include payload metadata
+  - logs do not include payload_json
+  - logs do not include secret payload content
+*/
+func TestRenderPayloadDebugLoggingOmitsRawPayloadBody(t *testing.T) {
+	backend := &fakeRendererBackend{
+		out: vyosrenderer.Output{
+			Target:       "vyos",
+			ConfigUUID:   "cfg-1",
+			RenderedText: "set system host-name test\n",
+		},
+	}
+	logs := &testutil.LogCapture{}
+	adapter, err := NewWithBackend(
+		backend,
+		WithLogger(logs),
+		WithDebugLogging(DebugLogging{LogPayloads: true}),
+	)
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+
+	_, err = adapter.Render(context.Background(), desiredWithPayload(`{"password":"swordfish","interfaces":[],"services":{}}`))
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !logs.Contains("payload_size_bytes") {
+		t.Fatal("expected payload metadata in logs")
+	}
+	if logs.Contains("payload_json") {
+		t.Fatal("raw payload key leaked to logs")
+	}
+	if logs.Contains("swordfish") {
+		t.Fatal("secret payload content leaked to logs")
 	}
 }
 

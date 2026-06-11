@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,6 +92,13 @@ func (s *Service) Handle(ctx context.Context, msg agentcore.ConfigureNotificatio
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if strings.TrimSpace(msg.Target) == "" {
+		return s.fail(ctx, msg, "notification_target_invalid", "configure notification target invalid", errors.New("configure notification target is empty"))
+	}
+	if strings.TrimSpace(msg.UUID) == "" {
+		return s.fail(ctx, msg, "notification_uuid_invalid", "configure notification uuid invalid", errors.New("configure notification uuid is empty"))
+	}
+
 	if err := s.publishStatus(ctx, msg, "running", "received", "configure notification received"); err != nil {
 		return s.fail(ctx, msg, "status_publish_failed", "configure processing failed", fmt.Errorf("publish configure status received: %w", err))
 	}
@@ -107,6 +115,12 @@ func (s *Service) Handle(ctx context.Context, msg agentcore.ConfigureNotificatio
 	if desired == nil {
 		return s.fail(ctx, msg, "desired_config_missing", "desired config missing", errors.New("desired config is nil"))
 	}
+	if strings.TrimSpace(desired.Record.Target) == "" {
+		return s.fail(ctx, msg, "desired_target_invalid", "desired target invalid", errors.New("desired target is empty"))
+	}
+	if strings.TrimSpace(desired.Record.UUID) == "" {
+		return s.fail(ctx, msg, "desired_uuid_invalid", "desired uuid invalid", errors.New("desired uuid is empty"))
+	}
 	if desired.Record.Target != msg.Target {
 		return s.fail(ctx, msg, "desired_target_mismatch", "desired target mismatch", fmt.Errorf("desired target %q does not match notification target %q", desired.Record.Target, msg.Target))
 	}
@@ -115,7 +129,7 @@ func (s *Service) Handle(ctx context.Context, msg agentcore.ConfigureNotificatio
 	}
 	s.logInfo("configure desired loaded", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "payload_size_bytes", len(desired.Record.Payload))
 	if s.debug.LogPayloads {
-		s.logDebug("configure desired payload loaded", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "payload_json", string(desired.Record.Payload))
+		s.logDebug("configure desired payload summary", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "payload_size_bytes", len(desired.Record.Payload), "payload_body_omitted", true)
 	}
 
 	localState, err := s.stateStore.Load(ctx)
@@ -171,9 +185,6 @@ func (s *Service) Handle(ctx context.Context, msg agentcore.ConfigureNotificatio
 	}
 
 	s.logInfo("configure applied", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "stage", "applied")
-	if err := s.publishStatus(ctx, msg, "success", "applied", "configure apply completed"); err != nil {
-		return s.fail(ctx, msg, "status_publish_failed", "configure processing failed", fmt.Errorf("publish configure status applied: %w", err))
-	}
 
 	nextState := state.State{
 		Target:      msg.Target,
@@ -186,10 +197,14 @@ func (s *Service) Handle(ctx context.Context, msg agentcore.ConfigureNotificatio
 	s.logInfo("configure state saved", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID)
 
 	s.logInfo("configure result publishing", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "status", "success")
-	if err := s.publishSuccessResult(ctx, msg, "configure apply completed"); err != nil {
-		return s.fail(ctx, msg, "result_publish_failed", "failed to publish configure result", fmt.Errorf("publish configure success result: %w", err))
+	statusErr := publishSuccessStatusErr(s.publishStatus(ctx, msg, "success", "applied", "configure apply completed"))
+	resultErr := publishSuccessResultErr(s.publishSuccessResult(ctx, msg, "configure apply completed"))
+	if resultErr == nil {
+		s.logInfo("configure result published", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "status", "success")
 	}
-	s.logInfo("configure result published", "target", msg.Target, "rpc_id", msg.RPCID, "uuid", msg.UUID, "status", "success")
+	if statusErr != nil || resultErr != nil {
+		return s.reportingFailure(msg, errors.Join(statusErr, resultErr))
+	}
 
 	return nil
 }
@@ -208,6 +223,33 @@ func (s *Service) fail(ctx context.Context, msg agentcore.ConfigureNotification,
 	}
 
 	return errors.Join(originalErr, statusErr, resultErr)
+}
+
+func (s *Service) reportingFailure(msg agentcore.ConfigureNotification, originalErr error) error {
+	s.logWarn(
+		"configure reporting failed after successful apply",
+		"target", msg.Target,
+		"rpc_id", msg.RPCID,
+		"uuid", msg.UUID,
+		"stage", "reporting_failed",
+		"status", "warning",
+		"error", originalErr,
+	)
+	return fmt.Errorf("configure apply succeeded but reporting failed: %w", originalErr)
+}
+
+func publishSuccessStatusErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("publish configure status applied: %w", err)
+}
+
+func publishSuccessResultErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("publish configure success result: %w", err)
 }
 
 func (s *Service) publishStatus(ctx context.Context, msg agentcore.ConfigureNotification, status, stage, message string) error {
@@ -269,6 +311,13 @@ func (s *Service) logError(msg string, kv ...any) {
 		return
 	}
 	s.logger.Error(msg, kv...)
+}
+
+func (s *Service) logWarn(msg string, kv ...any) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Warn(msg, kv...)
 }
 
 func countNonEmptyLines(text string) int {

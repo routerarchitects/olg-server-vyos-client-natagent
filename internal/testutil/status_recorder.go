@@ -32,6 +32,12 @@ func (r *StatusRecorder) PublishStatus(ctx context.Context, msg agentcore.Status
 func (r *StatusRecorder) RecordStatus(msg agentcore.StatusEnvelope) {
 	if r.Events != nil {
 		r.Events.Record("publish_status")
+		if msg.Status == "success" {
+			r.Events.Record("publish_success_status")
+		}
+		if msg.Status == "failure" {
+			r.Events.Record("publish_failure_status")
+		}
 	}
 
 	r.mu.Lock()

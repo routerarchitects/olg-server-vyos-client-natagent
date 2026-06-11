@@ -78,12 +78,13 @@ func (a *Adapter) Render(ctx context.Context, desired agentcore.StoredDesiredCon
 		"payload_size_bytes", len(input.PayloadJSON),
 	)
 	if a.debug.LogPayloads {
-		a.logDebug("vyos renderer input payload prepared",
+		a.logDebug("vyos renderer input payload summary",
 			"target", input.Target,
 			"uuid", input.ConfigUUID,
 			"schema_name", input.SchemaName,
 			"schema_version", input.SchemaVersion,
-			"payload_json", string(input.PayloadJSON),
+			"payload_size_bytes", len(input.PayloadJSON),
+			"payload_body_omitted", true,
 		)
 	}
 

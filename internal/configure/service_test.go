@@ -2,6 +2,7 @@ package configure
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/routerarchitects/nats-agent-core/agentcore"
 	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/renderer"
 	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/state"
+	"github.com/routerarchitects/olg-server-vyos-client-natagent/internal/testutil"
 )
 
 type fakeConfigureClient struct {
@@ -459,6 +461,65 @@ func TestHandleDesiredUUIDMismatch(t *testing.T) {
 /*
 TC-CONFIGURE-SERVICE-008
 Type: Negative
+Title: Handle rejects malformed notification before desired lookup
+Summary:
+Uses malformed configure notifications while the fake client still has a
+valid desired record available. Notification envelope validation should
+run before desired lookup so bad notifications are not misclassified as
+desired-record mismatches.
+
+Validates:
+  - empty notification target skips desired lookup
+  - empty notification UUID skips desired lookup
+  - render apply and save are not called
+  - failure classification is notification validation
+*/
+func TestHandleRejectsMalformedNotificationBeforeDesiredLookup(t *testing.T) {
+	cases := []struct {
+		name     string
+		msg      agentcore.ConfigureNotification
+		wantCode string
+	}{
+		{
+			name:     "empty target",
+			msg:      agentcore.ConfigureNotification{Version: "1.0", RPCID: "rpc-6a", Target: "", UUID: "cfg-6a"},
+			wantCode: "notification_target_invalid",
+		},
+		{
+			name:     "empty uuid",
+			msg:      agentcore.ConfigureNotification{Version: "1.0", RPCID: "rpc-6b", Target: "vyos", UUID: ""},
+			wantCode: "notification_uuid_invalid",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeConfigureClient{desired: newDesired("vyos", "cfg-present")}
+			store := &fakeStateStore{}
+			rndr := &fakeRenderer{}
+			apply := &fakeApplyEngine{}
+			svc := newConfigureServiceForTest(t, client, store, rndr, apply, time.Now)
+
+			err := svc.Handle(context.Background(), tc.msg)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if client.loadCalls != 0 {
+				t.Fatalf("desired load calls got=%d want=0", client.loadCalls)
+			}
+			if len(client.results) != 1 || client.results[0].ErrorCode != tc.wantCode {
+				t.Fatalf("unexpected failure result %+v", client.results)
+			}
+			if rndr.calls != 0 || apply.calls != 0 || store.saveCalls != 0 {
+				t.Fatalf("calls renderer=%d apply=%d save=%d want 0/0/0", rndr.calls, apply.calls, store.saveCalls)
+			}
+		})
+	}
+}
+
+/*
+TC-CONFIGURE-SERVICE-009
+Type: Negative
 Title: Handle fails when local state load fails
 Summary:
 For state-load errors, service should publish failed status/result and return.
@@ -492,7 +553,7 @@ func TestHandleStateLoadFailure(t *testing.T) {
 }
 
 /*
-TC-CONFIGURE-SERVICE-009
+TC-CONFIGURE-SERVICE-010
 Type: Negative
 Title: Handle fails when render step fails
 Summary:
@@ -527,7 +588,7 @@ func TestHandleRenderFailure(t *testing.T) {
 }
 
 /*
-TC-CONFIGURE-SERVICE-010
+TC-CONFIGURE-SERVICE-011
 Type: Negative
 Title: Handle fails when apply step fails
 Summary:
@@ -565,7 +626,7 @@ func TestHandleApplyFailure(t *testing.T) {
 }
 
 /*
-TC-CONFIGURE-SERVICE-011
+TC-CONFIGURE-SERVICE-012
 Type: Negative
 Title: Handle fails when state save fails after apply success
 Summary:
@@ -600,7 +661,7 @@ func TestHandleStateSaveFailureAfterApplySuccess(t *testing.T) {
 }
 
 /*
-TC-CONFIGURE-SERVICE-012
+TC-CONFIGURE-SERVICE-013
 Type: Negative
 Title: Handle publishes failure when status publish fails
 Summary:
@@ -638,18 +699,19 @@ func TestHandleStatusPublishFailureBehavior(t *testing.T) {
 }
 
 /*
-TC-CONFIGURE-SERVICE-013
-Type: Negative
-Title: Handle publishes failure when success result publish fails
+TC-CONFIGURE-SERVICE-014
+Type: Safety
+Title: Handle returns reporting error when success result publish fails after save
 Summary:
 Injects failure for success result publish in the final step of happy path.
-Service should enter failure path and publish failure output with
-result_publish_failed code.
+Service should keep the saved applied UUID, avoid publishing a
+contradictory failure result, and return a reporting error to caller.
 
 Validates:
-  - failure result uses result_publish_failed
   - apply and save complete before result publish failure
-  - service returns non-nil error
+  - success status remains published
+  - no failure result is published
+  - service returns non-nil reporting error
 */
 func TestHandleResultPublishFailureBehavior(t *testing.T) {
 	msg := agentcore.ConfigureNotification{Version: "1.0", RPCID: "rpc-12", Target: "vyos", UUID: "cfg-12"}
@@ -667,19 +729,75 @@ func TestHandleResultPublishFailureBehavior(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if len(client.results) != 1 {
-		t.Fatalf("result count got=%d want=1", len(client.results))
+	if !strings.Contains(err.Error(), "apply succeeded but reporting failed") {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if client.results[0].Result != "failure" || client.results[0].ErrorCode != "result_publish_failed" {
-		t.Fatalf("unexpected failure result %+v", client.results[0])
+	if len(client.results) != 0 {
+		t.Fatalf("result count got=%d want=0", len(client.results))
+	}
+	if len(client.statuses) == 0 || client.statuses[len(client.statuses)-1].Status != "success" || client.statuses[len(client.statuses)-1].Stage != "applied" {
+		t.Fatalf("unexpected statuses %+v", client.statuses)
 	}
 	if apply.calls != 1 || store.saveCalls != 1 {
 		t.Fatalf("calls apply=%d save=%d want 1/1", apply.calls, store.saveCalls)
 	}
+	if len(store.saved) != 1 || store.saved[0].AppliedUUID != "cfg-12" {
+		t.Fatalf("saved state mismatch %+v", store.saved)
+	}
 }
 
 /*
-TC-CONFIGURE-SERVICE-014
+TC-CONFIGURE-SERVICE-015
+Type: Safety
+Title: Handle returns reporting error when success status publish fails after save
+Summary:
+Injects failure for final success status publish after apply and state save
+already succeeded. Service should keep the saved applied UUID, still try to
+publish the success result, and avoid publishing a contradictory failure.
+
+Validates:
+  - apply and save complete before success status publish failure
+  - success result is still published
+  - no failure result is published
+  - service returns non-nil reporting error
+*/
+func TestHandleSuccessStatusPublishFailureAfterSave(t *testing.T) {
+	msg := agentcore.ConfigureNotification{Version: "1.0", RPCID: "rpc-13", Target: "vyos", UUID: "cfg-13"}
+
+	client := &fakeConfigureClient{
+		desired:          newDesired("vyos", "cfg-13"),
+		statusErrByStage: map[string]error{"applied": errors.New("publish success status failed")},
+	}
+	store := &fakeStateStore{}
+	rndr := &fakeRenderer{output: renderer.Output{Target: "vyos", UUID: "cfg-13", Text: "# out"}}
+	apply := &fakeApplyEngine{}
+	svc := newConfigureServiceForTest(t, client, store, rndr, apply, time.Now)
+
+	err := svc.Handle(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "apply succeeded but reporting failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(client.results) != 1 || client.results[0].Result != "success" {
+		t.Fatalf("unexpected results %+v", client.results)
+	}
+	for _, status := range client.statuses {
+		if status.Status == "failure" {
+			t.Fatalf("unexpected failure status %+v", status)
+		}
+	}
+	if apply.calls != 1 || store.saveCalls != 1 {
+		t.Fatalf("calls apply=%d save=%d want 1/1", apply.calls, store.saveCalls)
+	}
+	if len(store.saved) != 1 || store.saved[0].AppliedUUID != "cfg-13" {
+		t.Fatalf("saved state mismatch %+v", store.saved)
+	}
+}
+
+/*
+TC-CONFIGURE-SERVICE-016
 Type: Negative
 Title: Handle rejects nil context input
 Summary:
@@ -712,7 +830,7 @@ func TestHandleRejectsNilContext(t *testing.T) {
 }
 
 /*
-TC-CONFIGURE-SERVICE-015
+TC-CONFIGURE-SERVICE-017
 Type: Positive
 Title: Handle serializes concurrent configure processing
 Summary:
@@ -815,5 +933,63 @@ func TestHandleSerializesConcurrentConfigureProcessing(t *testing.T) {
 	}
 	if store.saved[0].AppliedUUID != "cfg-15-a" || store.saved[1].AppliedUUID != "cfg-15-b" {
 		t.Fatalf("saved order mismatch got=%q then %q", store.saved[0].AppliedUUID, store.saved[1].AppliedUUID)
+	}
+}
+
+/*
+TC-CONFIGURE-SERVICE-018
+Type: Safety
+Title: Handle does not log raw desired payload
+Summary:
+Runs the configure service with payload debug logging enabled and a
+desired config that contains a secret value. The service should emit
+payload metadata only and must not write the raw payload body to logs.
+
+Validates:
+  - configure succeeds with payload debug logging enabled
+  - logs include payload metadata
+  - logs do not include payload_json
+  - logs do not include secret payload content
+*/
+func TestHandleDoesNotLogRawDesiredPayload(t *testing.T) {
+	msg := agentcore.ConfigureNotification{Version: "1.0", RPCID: "rpc-log-1", Target: "vyos", UUID: "cfg-log-1"}
+	desired := &agentcore.StoredDesiredConfig{
+		Record: agentcore.DesiredConfigRecord{
+			Target:  msg.Target,
+			UUID:    msg.UUID,
+			Payload: json.RawMessage(`{"password":"swordfish","interfaces":[]}`),
+		},
+	}
+
+	logs := &testutil.LogCapture{}
+	client := &fakeConfigureClient{desired: desired}
+	store := &fakeStateStore{}
+	rndr := &fakeRenderer{output: renderer.Output{Target: msg.Target, UUID: msg.UUID, Text: "set system host-name test\n"}}
+	apply := &fakeApplyEngine{}
+
+	svc, err := NewService(Dependencies{
+		Client:      client,
+		StateStore:  store,
+		Renderer:    rndr,
+		ApplyEngine: apply,
+		Logger:      logs,
+		Debug:       DebugLogging{LogPayloads: true},
+		Now:         time.Now,
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	if err := svc.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !logs.Contains("payload_size_bytes") {
+		t.Fatal("expected payload metadata in logs")
+	}
+	if logs.Contains("payload_json") {
+		t.Fatal("raw payload key leaked to logs")
+	}
+	if logs.Contains("swordfish") {
+		t.Fatal("secret payload content leaked to logs")
 	}
 }
