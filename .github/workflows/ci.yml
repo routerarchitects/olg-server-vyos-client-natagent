@@ -74,6 +74,10 @@ jobs:
       - name: Validate config script
         run: ./tests/scripts/validate-config.sh
 
+      - name: Mocked integration tests
+        timeout-minutes: 5
+        run: go test -tags=integration ./...
+
       - name: Phase 3 configure smoke
         timeout-minutes: 5
         run: NATS_PORT=4223 ./tests/scripts/phase3-real-nats-configure-smoke.sh
