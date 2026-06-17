@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 20
     env:
       LAB_ARTIFACT_DIR: ${{ github.workspace }}/tests/lab/artifacts/github-actions/run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+      SSH_KEY_PATH: ${{ runner.temp }}/vyos_lab_key
 
     steps:
       - name: Checkout
@@ -42,8 +43,9 @@ jobs:
           VYOS_SSH_KEY_SECRET: ${{ secrets.VYOS_SSH_KEY }}
         run: |
           if [ -n "$VYOS_SSH_KEY_SECRET" ]; then
-            printf '%s' "$VYOS_SSH_KEY_SECRET" > "$RUNNER_TEMP/vyos_lab_key"
-            chmod 600 "$RUNNER_TEMP/vyos_lab_key"
+            rm -f "$SSH_KEY_PATH"
+            printf '%s' "$VYOS_SSH_KEY_SECRET" > "$SSH_KEY_PATH"
+            chmod 600 "$SSH_KEY_PATH"
           fi
 
       - name: Prepare lab artifact directory
@@ -63,8 +65,8 @@ jobs:
           DESIRED_CONFIG_FILE: ${{ inputs.desired_config }}
           ARTIFACT_DIR: ${{ env.LAB_ARTIFACT_DIR }}
         run: |
-          if [ -f "$RUNNER_TEMP/vyos_lab_key" ]; then
-            export VYOS_SSH_KEY="$RUNNER_TEMP/vyos_lab_key"
+          if [ -f "$SSH_KEY_PATH" ]; then
+            export VYOS_SSH_KEY="$SSH_KEY_PATH"
             unset VYOS_PASSWORD
           fi
           ./tests/lab/real-vyos-configure-smoke.sh
@@ -74,6 +76,13 @@ jobs:
         env:
           ARTIFACT_DIR: ${{ env.LAB_ARTIFACT_DIR }}
         run: ./tests/lab/collect-lab-evidence.sh
+
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          if [ -f "$SSH_KEY_PATH" ]; then
+            shred -u "$SSH_KEY_PATH" 2>/dev/null || rm -f "$SSH_KEY_PATH"
+          fi
 
       - name: Review artifact location
         if: always()
