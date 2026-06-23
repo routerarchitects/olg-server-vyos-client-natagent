@@ -1119,14 +1119,14 @@ func TestReconcileDriftSuccessful(t *testing.T) {
 /*
 TC-RECONCILE-004
 Type: Negative
-Title: Reconcile publishes degraded status on loading failure and doesn't crash
+Title: Reconcile publishes degraded status on loading failure
 Summary:
 Runs the reconcile flow when loading the desired configuration from KV fails with
 an error (e.g. timeout). The reconcile process should capture the error, publish
-a failed status message, and return nil to ensure that startup does not crash.
+a failed status message, and return the error.
 
 Validates:
-  - no error is returned (non-fatal error handled)
+  - error is returned
   - a failure status envelope with stage "failed" is published
 */
 func TestReconcileLoadFailure(t *testing.T) {
@@ -1141,8 +1141,8 @@ func TestReconcileLoadFailure(t *testing.T) {
 
 	svc := newConfigureServiceForTest(t, client, store, rndr, apply, time.Now)
 	err := svc.Reconcile(context.Background(), "vyos")
-	if err != nil {
-		t.Fatalf("expected nil error (since error is handled and degraded status is published), got: %v", err)
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 	if len(client.statuses) != 1 || client.statuses[0].Stage != "failed" {
 		t.Fatalf("expected failure status, got statuses: %+v", client.statuses)
@@ -1152,14 +1152,14 @@ func TestReconcileLoadFailure(t *testing.T) {
 /*
 TC-RECONCILE-005
 Type: Negative
-Title: Reconcile publishes degraded status on state load failure and doesn't crash
+Title: Reconcile publishes degraded status on state load failure
 Summary:
 Runs the reconcile flow when loading the local state store fails with an error.
-The reconcile process should handle the error gracefully, publish a failed status,
-and return nil to keep the agent running.
+The reconcile process should handle the error, publish a failed status,
+and return the error.
 
 Validates:
-  - no error is returned (non-fatal error handled)
+  - error is returned
   - a failure status envelope with stage "failed" is published
 */
 func TestReconcileStateLoadFailure(t *testing.T) {
@@ -1174,8 +1174,8 @@ func TestReconcileStateLoadFailure(t *testing.T) {
 
 	svc := newConfigureServiceForTest(t, client, store, rndr, apply, time.Now)
 	err := svc.Reconcile(context.Background(), "vyos")
-	if err != nil {
-		t.Fatalf("expected nil error, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 	if len(client.statuses) != 1 || client.statuses[0].Stage != "failed" {
 		t.Fatalf("expected failure status, got statuses: %+v", client.statuses)

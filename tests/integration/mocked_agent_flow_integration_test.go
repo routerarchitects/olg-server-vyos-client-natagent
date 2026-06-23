@@ -717,6 +717,114 @@ func TestIntegrationReconnectReconcile(t *testing.T) {
 	}
 }
 
+/*
+TC-INTEGRATION-012
+Type: Integration
+Title: Startup reconcile failure publishes degraded status and continues running
+Summary:
+Starts the NATS server, writes a malformed/invalid JSON string directly to the
+JetStream KV store for the target. Then starts the agent runtime. The agent
+should load the invalid desired config, trigger reconciliation failure, publish
+a degraded status message with Stage "failed" to NATS, and continue running safely.
+
+Validates:
+  - Agent runtime starts and does not crash when reconcile fails on startup.
+  - A failure status envelope with stage "failed" and empty RPCID is published.
+*/
+func TestIntegrationStartupReconcileFailure(t *testing.T) {
+	url := startTestNATSServer(t)
+	cfg := mockedIntegrationCoreConfig(t, url)
+	target := mockedIntegrationTarget(t)
+
+	// Direct write of malformed/invalid JSON string to NATS KV
+	nc, err := nats.Connect(url, nats.Name("mocked-integration-kv-writer"), nats.NoReconnect())
+	if err != nil {
+		t.Fatalf("failed to connect to NATS: %v", err)
+	}
+	defer nc.Close()
+
+	js, err := nc.JetStream()
+	if err != nil {
+		t.Fatalf("failed to get JetStream: %v", err)
+	}
+
+	kv, err := js.CreateKeyValue(&nats.KeyValueConfig{
+		Bucket: cfg.KV.Bucket,
+	})
+	if err != nil {
+		t.Fatalf("failed to create KV bucket: %v", err)
+	}
+
+	// Write invalid JSON directly to desired config key (desired.<target>)
+	_, err = kv.Put("desired."+target, []byte("invalid json {{{{"))
+	if err != nil {
+		t.Fatalf("failed to put invalid json to KV: %v", err)
+	}
+
+	// Create test state file path
+	stateFile := filepath.Join(t.TempDir(), "state.json")
+
+	// Set up agent config
+	appCfg := &config.AppConfig{}
+	appCfg.Agent.Target = target
+	appCfg.Agent.StateFile = stateFile
+	appCfg.Agent.Configure.Mode = "placeholder"
+	appCfg.Agent.Logging.Level = "debug"
+	appCfg.Agent.Logging.Format = "text"
+
+	// Set up probe to capture published status/results
+	probe := newStartedProbe(t, cfg, target)
+
+	// Create logger that prints to standard output (stdout)
+	logger, err := agent.NewLogger(appCfg.Agent.Logging, os.Stdout)
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
+	}
+
+	// Create the agent Runtime passing the logger
+	runtime, err := agent.New(appCfg, cfg, agent.WithClock(mockedIntegrationNow), agent.WithLogger(logger))
+	if err != nil {
+		t.Fatalf("failed to create agent runtime: %v", err)
+	}
+
+	// Start agent runtime
+	runCtx, runCancel := context.WithCancel(context.Background())
+	defer runCancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runtime.Run(runCtx)
+	}()
+
+	// Wait for the failure status (with empty rpcID)
+	statuses := probe.waitStatuses(t, "", "failed")
+
+	var failedStatus *agentcore.StatusEnvelope
+	for _, st := range statuses {
+		if st.Stage == "failed" {
+			failedStatus = &st
+			break
+		}
+	}
+
+	if failedStatus == nil {
+		t.Fatalf("expected failure status stage failed, but did not find it in: %+v", statuses)
+	}
+	if failedStatus.Status != "failure" {
+		t.Fatalf("expected failure status status failure, got: %+v", failedStatus)
+	}
+
+	// Stop runtime and check error
+	runCancel()
+	select {
+	case runErr := <-errCh:
+		if runErr != nil && !errors.Is(runErr, context.Canceled) {
+			t.Fatalf("runtime exited with error: %v", runErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runtime failed to stop")
+	}
+}
+
 type configureOutcome struct {
 	statuses []agentcore.StatusEnvelope
 	result   agentcore.ResultEnvelope

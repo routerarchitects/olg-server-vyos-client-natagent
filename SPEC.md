@@ -784,6 +784,19 @@ This integration test verifies reconnection reconcile logic.
 8. Assert local state file is updated and success result published back to NATS.
 ```
 
+### 26.5 Startup reconcile failure
+
+This integration test verifies that the agent behaves correctly when startup reconciliation fails.
+
+```text
+1. Start real nats-server -js.
+2. Direct write of malformed/invalid JSON string to JetStream KV.
+3. Start vyos-nats-agent.
+4. Agent fails to load or parse desired config during startup reconcile.
+5. Agent publishes degraded/failure status (stage "failed") to NATS.
+6. Agent continues running and does not crash.
+```
+
 Current repository smoke scripts:
 
 - `tests/smoke/real-nats-configure-smoke.sh`
@@ -902,4 +915,5 @@ Milestone 1 is complete when:
 [x] Integration test proves action end-to-end.
 [x] Integration test proves startup reconcile or latest desired config recovery.
 [x] Integration test proves reconnection reconciliation on connection recovery.
+[x] Integration test proves startup reconcile failure handling.
 ```

@@ -164,9 +164,11 @@ func (s *Service) Reconcile(ctx context.Context, target string) error {
 	localState, err := s.stateStore.Load(ctx)
 	if err != nil {
 		s.logError("reconcile: failed to load local state", "target", target, "error", err)
-		// Non-fatal error: publish degraded status and return nil to prevent process crash
-		_ = s.publishStatus(ctx, agentcore.ConfigureNotification{Target: target}, "failure", "failed", "startup reconcile failed to load local state")
-		return nil
+		// Non-fatal error: publish degraded status and return the error
+		if pubErr := s.publishStatus(ctx, agentcore.ConfigureNotification{Target: target}, "failure", "failed", "startup reconcile failed to load local state"); pubErr != nil {
+			s.logError("reconcile: failed to publish degraded status", "error", pubErr)
+		}
+		return fmt.Errorf("load local state: %w", err)
 	}
 
 	desired, err := s.client.LoadDesiredConfig(ctx, target)
@@ -177,9 +179,11 @@ func (s *Service) Reconcile(ctx context.Context, target string) error {
 			return nil
 		}
 		s.logError("reconcile: failed to load desired config", "target", target, "error", err)
-		// Non-fatal error: publish degraded status and return nil
-		_ = s.publishStatus(ctx, agentcore.ConfigureNotification{Target: target}, "failure", "failed", "startup reconcile failed to load desired config")
-		return nil
+		// Non-fatal error: publish degraded status and return the error
+		if pubErr := s.publishStatus(ctx, agentcore.ConfigureNotification{Target: target}, "failure", "failed", "startup reconcile failed to load desired config"); pubErr != nil {
+			s.logError("reconcile: failed to publish degraded status", "error", pubErr)
+		}
+		return fmt.Errorf("load desired config: %w", err)
 	}
 
 	if desired == nil {
