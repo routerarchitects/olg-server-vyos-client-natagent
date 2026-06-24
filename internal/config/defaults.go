@@ -29,6 +29,7 @@ func DefaultAppConfig() AppConfig {
 				SaveAfterCommit: false,
 			},
 			Actions: ActionsConfig{
+				Mode:    "placeholder",
 				Enabled: []string{"trace"},
 			},
 		},

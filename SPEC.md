@@ -15,7 +15,7 @@ The safe default must prove an end-to-end configure/action lifecycle using:
 - YAML runtime configuration
 - placeholder VyOS renderer
 - placeholder VyOS apply engine
-- placeholder `trace` action executor
+- placeholder and real `trace` action executors
 - real NATS integration tests
 
 The agent can also run a real configure backend when explicitly configured. Real mode uses `github.com/routerarchitects/olg-renderer-vyos` renderer/apply public APIs and must be validated on disposable/lab VyOS targets before production rollout.
@@ -292,6 +292,7 @@ agent.debug.log_payloads = false
 agent.debug.log_rendered = false
 agent.debug.log_apply_plan = false
 agent.apply.save_after_commit = false
+agent.actions.mode = placeholder
 agent.actions.enabled = [trace]
 
 agentcore.nats.servers = [nats://127.0.0.1:4222]
@@ -354,6 +355,7 @@ For milestone 1, supported values are:
 
 ```text
 configure.mode = placeholder | real
+actions.mode = placeholder | real
 actions.enabled = trace
 ```
 
@@ -469,7 +471,7 @@ When the agent receives an action command:
 1. Receive ActionCommand.
 2. Check action is enabled in config.
 3. Publish running status if useful.
-4. Execute placeholder trace action.
+4. Execute trace action (either placeholder or real mode based on agent.actions.mode).
 5. Publish success or failure result.
 ```
 
@@ -517,21 +519,31 @@ It may log or store the rendered config for test verification.
 
 ## 20. Action executor interface
 
-Action execution must be behind an interface.
+Action execution must be behind a generic `Executor` interface.
 
 ```go
-type TraceExecutor interface {
-    Trace(ctx context.Context, payload []byte) ([]byte, error)
+type Executor interface {
+	Execute(ctx context.Context, msg agentcore.ActionCommand) (Output, error)
+}
+
+type Output struct {
+	Payload json.RawMessage
+	Message string
 }
 ```
 
-Milestone 1 implementation:
+### 20.1 Placeholder Mode
 
-```text
-placeholder trace executor
-```
+The placeholder trace executor returns deterministic JSON output mimicking the success payload without executing any command.
 
-The placeholder trace executor must return deterministic JSON output.
+### 20.2 Real Mode (`VyOSTraceExecutor`)
+
+When `agent.actions.mode: real` is enabled, the agent executes real packet captures:
+1. **Strict Interface Validation**: Checks `/sys/class/net/<interface>` directly. If missing, validates against regex `^(eth|bond|dum|vlan|wlan|lo)[0-9]+(\.[0-9]+)?$`. Slashes, backslashes, dots, or shell symbols are strictly rejected to prevent command injection.
+2. **Parameter Bounds**: Restricts duration to a maximum of 300 seconds, and packets to a maximum of 10000.
+3. **Secure PCAP Path**: Securely creates a temporary PCAP file using `os.CreateTemp("", "pcap-*.pcap")` rather than constructed from `RPCID`, preventing directory traversal vulnerability.
+4. **Streaming Multipart Upload**: Streams the resulting PCAP to the controller's upload URI using a zero-copy streaming pipeline (`io.Pipe` + `mime/multipart`) to avoid memory-bound issues.
+5. **tcpdump execution**: Invokes `/usr/bin/tcpdump -U -i <interface> -w <path>` and stops when the timed context expires or packet limit is reached.
 
 ## 21. Local state
 
@@ -849,7 +861,7 @@ Implement:
 Implement:
 
 - `RegisterActionHandler(target, "trace", handler)`
-- placeholder trace executor
+- placeholder and real trace executor (`VyOSTraceExecutor`)
 - action result/status publishing
 
 ### Phase 5: Integration tests

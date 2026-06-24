@@ -511,7 +511,22 @@ action request received
 | ACT-011 | `TestActionContextCancellationStopsExecution` | P1 | Recovery | Respect cancellation | Cancelled/failed status; no hang |
 | ACT-012 | `TestActionTimeoutPublishesFailure` | P1 | Recovery | Prevent stuck action | Failed/timeout status |
 
-## 13.3 Acceptance Criteria
+## 13.3 VyOS Trace Executor Test Cases
+
+These test cases specifically target the real `VyOSTraceExecutor` implementation details:
+
+| ID | Test Name | Priority | Type | Purpose | Expected Result |
+|---|---|---|---|---|---|
+| TC-ACTIONS-TRACE-001 | `TestVyOSTraceExecutorHappyPath` | P0 | Positive | Validate happy path trace action execution | tcpdump runs; HTTP multipart POST uploads file; local PCAP deleted; success payload |
+| TC-ACTIONS-TRACE-002 | `TestVyOSTraceExecutorPayloadValidation` | P0 | Negative | Validate trace input payload parsing and validation | Invalid payload/target/rpc-id/URI rejected |
+| TC-ACTIONS-TRACE-003 | `TestVyOSTraceExecutorContextCancellation` | P0 | Negative | Aborts execution on parent context cancellation | No upload; returns capture aborted error |
+| TC-ACTIONS-TRACE-004 | `TestVyOSTraceExecutorHTTPFailure` | P0 | Negative | Handles HTTP upload errors gracefully | PCAP file cleaned up; upload failed status returned |
+| TC-ACTIONS-TRACE-005 | `TestVyOSTraceExecutorRPCTraversalSafe` | P0 | Safety | Directory traversal protection on RPCID | Temp file created inside secure OS temp dir; no traversal |
+| TC-ACTIONS-TRACE-006 | `TestVyOSTraceExecutorParameterBounds` | P0 | Negative | Enforces duration and packets parameter boundaries | Reject negative values and values exceeding maximum limits (300s, 10000 packets) |
+| TC-ACTIONS-TRACE-007 | `TestVyOSTraceExecutorInterfaceValidation` | P0 | Safety | Validates interface name against command injection | Rejects dots, slashes, or special shell chars; allows ethX/bondX/vlanX/etc |
+| TC-ACTIONS-TRACE-008 | `TestVyOSTraceExecutorLargeUploadStreaming` | P0 | Positive | Streaming multipart upload functionality | Large file upload streams successfully using zero-copy pipeline |
+
+## 13.4 Acceptance Criteria
 
 This section is complete when:
 
@@ -519,7 +534,8 @@ This section is complete when:
 - status sequence is deterministic,
 - unsupported and disabled actions fail safely,
 - action failure publishes failed status,
-- correlation data is preserved.
+- correlation data is preserved,
+- trace executor enforces parameter bounds, interface validation, path traversal safety, and zero-copy streaming uploads.
 
 ---
 
@@ -1086,6 +1102,10 @@ A reviewer can approve the test-hardening PR when these questions are answered w
 | Does restart with persisted state avoid reapply? |  |
 | Does corrupt state fail safely or recover cleanly? |  |
 | Do NATS smoke tests still pass? |  |
+| Does the trace action executor enforce duration and packet boundaries? |  |
+| Does the trace action executor prevent directory traversal via secure temp file creation? |  |
+| Does the trace action executor strictly validate network interface names? |  |
+| Does the trace action executor upload PCAP files via a zero-copy streaming pipeline? |  |
 
 ---
 

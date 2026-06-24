@@ -135,16 +135,24 @@ possible.
 
 ## Action Trace Smoke
 
-Real VyOS trace action is currently deferred. The agent has a placeholder trace
-executor, which is already covered by unit and mocked integration tests. The lab
-script refuses to claim real trace evidence until a real platform trace executor
-exists:
+The action trace smoke test submits a trace request through NATS. It runs an inline controller that starts a local HTTP upload server, receives the uploaded PCAP file from the agent, verifies the PCAP magic number header, and records status and result envelopes.
+
+To run the trace smoke test:
 
 ```bash
 ./tests/lab/real-vyos-action-trace-smoke.sh
 ```
 
-That command exits with status `2` and writes a deferral summary artifact.
+The script writes evidence into `ARTIFACT_DIR`, including:
+
+- `phase9-summary.md`
+- `action-status.jsonl`
+- `action-result.jsonl`
+- `captured.pcap`
+- `agent.log`
+- `commands-run.txt`
+- `environment-summary.txt`
+
 
 ## Collect Evidence
 
@@ -178,7 +186,6 @@ leave the lab.
 
 ## Known Limitations
 
-- Real trace action is not implemented yet.
 - The configure script validates a configurable marker string in VyOS output;
   set `EXPECTED_VYOS_MATCH` if your fixture uses a different marker.
 - Different lab topologies may require a different desired config fixture.

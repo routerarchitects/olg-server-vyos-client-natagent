@@ -38,6 +38,7 @@ type ApplyConfig struct {
 }
 
 type ActionsConfig struct {
+	Mode    string   `yaml:"mode"`
 	Enabled []string `yaml:"enabled"`
 }
 

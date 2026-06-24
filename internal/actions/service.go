@@ -90,7 +90,7 @@ func (s *Service) Handle(ctx context.Context, msg agentcore.ActionCommand) error
 	}
 
 	s.logInfo("action executing", "target", msg.Target, "action", msg.Action, "rpc_id", msg.RPCID, "stage", "executing", "status", "running")
-	if err := s.publishStatus(ctx, msg, "running", "executing", "executing placeholder trace action"); err != nil {
+	if err := s.publishStatus(ctx, msg, "running", "executing", "executing trace action"); err != nil {
 		return s.fail(ctx, msg, "status_publish_failed", "action processing failed", fmt.Errorf("publish action status executing: %w", err))
 	}
 
@@ -106,7 +106,7 @@ func (s *Service) Handle(ctx context.Context, msg agentcore.ActionCommand) error
 	}
 
 	s.logInfo("action completed", "target", msg.Target, "action", msg.Action, "rpc_id", msg.RPCID, "stage", "completed", "status", "success")
-	if err := s.publishStatus(ctx, msg, "success", "completed", "placeholder trace action completed"); err != nil {
+	if err := s.publishStatus(ctx, msg, "success", "completed", "trace action completed"); err != nil {
 		return s.fail(ctx, msg, "status_publish_failed", "action processing failed", fmt.Errorf("publish action status completed: %w", err))
 	}
 

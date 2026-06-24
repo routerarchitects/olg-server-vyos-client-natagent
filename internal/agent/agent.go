@@ -148,7 +148,12 @@ func New(appCfg *config.AppConfig, coreCfg agentcore.Config, opts ...Option) (*R
 	if err != nil {
 		return nil, fmt.Errorf("create configure service: %w", err)
 	}
-	traceExecutor := actions.NewPlaceholderTraceExecutor()
+	var traceExecutor actions.Executor
+	if appCfg.Agent.Actions.Mode == "real" {
+		traceExecutor = actions.NewVyOSTraceExecutor(actions.NewRealCommandRunner(), nil)
+	} else {
+		traceExecutor = actions.NewPlaceholderTraceExecutor()
+	}
 	actionService, err := actions.NewService(actions.Dependencies{
 		Client:  client,
 		Logger:  options.logger,

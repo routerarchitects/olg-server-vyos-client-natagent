@@ -21,6 +21,7 @@ agent:
     save_after_commit: false
 
   actions:
+    mode: placeholder # placeholder | real
     enabled:
       - trace
 

@@ -19,7 +19,7 @@ The default mode is intentionally safe for CI and local development: configure u
 - Stores the last successfully applied config UUID locally.
 - Performs startup configuration reconciliation to sync local state with the latest KV configuration on initialization.
 - Triggers automatic configuration reconciliation on reconnecting to NATS to sync offline updates.
-- Publishes placeholder action status/result for `trace`.
+- Supports both placeholder trace execution and real trace execution using `tcpdump` and HTTP multipart streaming upload.
 - Publishes result and status messages to the bus.
 
 ## What is out of scope
@@ -80,9 +80,11 @@ Configure backend mode:
 agent:
   configure:
     mode: placeholder # placeholder | real
+  actions:
+    mode: placeholder # placeholder | real
 ```
 
-`placeholder` is the default and uses the internal no-op renderer/apply path. `real` constructs adapters around `olg-renderer-vyos/renderer` and `olg-renderer-vyos/apply`; the NATS agent calls those public APIs and does not execute raw VyOS commands directly.
+`placeholder` is the default for both configure and action modes. `real` configure constructs adapters around `olg-renderer-vyos/renderer` and `olg-renderer-vyos/apply`. `real` action constructs a `VyOSTraceExecutor` which executes `/usr/bin/tcpdump` on the device and stream-uploads the captured PCAP.
 
 `agent.configure.mode` is the single backend selector. There are no separate active renderer/apply mode fields.
 
@@ -212,7 +214,7 @@ Implement configure handling, desired config loading, placeholder renderer, plac
 
 ### Phase 4: Action flow with one action
 
-Implement the `trace` action handler with placeholder execution and action result/status publishing.
+Implement the `trace` action handler with placeholder/real execution (`VyOSTraceExecutor`) and action result/status publishing.
 
 ### Phase 5: Integration tests
 
@@ -312,7 +314,7 @@ The current binary supports:
 - configure workflow using `LoadDesiredConfig(ctx, target)`, selected configure backend mode, and local applied UUID state updates after successful apply
 - startup configuration reconciliation on initialization to align local state with KV
 - automatic reconnection reconciliation triggered by NATS connection recovery to fetch offline changes
-- action workflow for `trace` using a placeholder executor, with action status/result publishing
+- action workflow for `trace` using placeholder or real trace execution with parameters bounds, strict regex interface checks, secure randomized temp file PCAP storage, and zero-copy streaming multipart upload, with status/result publishing
 
 ```bash
 go run ./cmd/vyos-nats-agent --config ./config.example.yaml --validate-config
@@ -352,9 +354,10 @@ Normal CI and smoke tests should continue to use `agent.configure.mode: placehol
 
 Action handling in this phase supports `trace` only:
 - validates action is enabled and supported
-- runs placeholder trace execution (no real shell/network trace behavior)
+- runs placeholder trace execution or real trace execution (`VyOSTraceExecutor`) using `/usr/bin/tcpdump` and zero-copy HTTP streaming multipart upload to the controller
+- enforces parameter limits (duration <= 300s, packets <= 10000) and strict interface validation rules (sys net class check or regex fallback)
 - publishes action statuses (`received`, `executing`, `completed` or `failed`)
-- publishes final action result with placeholder payload metadata
+- publishes final action result with trace execution metadata payload
 
 `--print-effective-config` prints the effective config as YAML after defaults and YAML overlay. Sensitive values are redacted as `********`, and the converted `agentcore.Config` is not printed.
 

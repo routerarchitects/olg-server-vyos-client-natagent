@@ -171,3 +171,53 @@ agent:
 		t.Fatal("save_after_commit got=false want=true")
 	}
 }
+
+/*
+TC-CONFIG-VALIDATE-007
+Type: Positive
+Title: Supported action modes validate
+Summary:
+Checks each supported action mode.
+Both placeholder and real modes should pass validation.
+
+Validates:
+  - placeholder action mode is accepted
+  - real action mode is accepted
+*/
+func TestValidateActionModeAcceptsSupportedValues(t *testing.T) {
+	for _, mode := range []string{"placeholder", "real"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := DefaultAppConfig()
+			cfg.Agent.Actions.Mode = mode
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("action mode %q should validate: %v", mode, err)
+			}
+		})
+	}
+}
+
+/*
+TC-CONFIG-VALIDATE-008
+Type: Negative
+Title: Unknown action mode is rejected
+Summary:
+Sets action mode to an unsupported value.
+Validation should fail fast with an error that identifies the
+invalid action mode field.
+
+Validates:
+  - unknown action mode returns an error
+  - error mentions agent.actions.mode
+*/
+func TestValidateActionModeRejectsUnknownValue(t *testing.T) {
+	cfg := DefaultAppConfig()
+	cfg.Agent.Actions.Mode = "bogus"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "agent.actions.mode") {
+		t.Fatalf("error %q does not mention agent.actions.mode", err.Error())
+	}
+}

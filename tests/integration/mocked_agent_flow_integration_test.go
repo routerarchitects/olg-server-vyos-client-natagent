@@ -11,6 +11,8 @@ import (
 	"go/build"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -298,6 +300,107 @@ func TestIntegrationActionTraceFlowWithMockExecutor(t *testing.T) {
 	}
 	if result.Target != target || result.RPCID != rpcID {
 		t.Fatalf("result correlation mismatch: %+v", result)
+	}
+}
+
+type integrationActionTraceCommand struct {
+	pcapPath string
+}
+
+func (c *integrationActionTraceCommand) Run() error {
+	if c.pcapPath != "" {
+		return os.WriteFile(c.pcapPath, []byte("mock-pcap-data"), 0o600)
+	}
+	return nil
+}
+
+type integrationActionTraceCommandRunner struct{}
+
+func (r *integrationActionTraceCommandRunner) Command(ctx context.Context, name string, args ...string) actions.Command {
+	var pcapPath string
+	for i, arg := range args {
+		if arg == "-w" && i+1 < len(args) {
+			pcapPath = args[i+1]
+			break
+		}
+	}
+	return &integrationActionTraceCommand{
+		pcapPath: pcapPath,
+	}
+}
+
+/*
+TC-INTEGRATION-013
+Type: Integration
+Title: Action trace flow in real mode with mocked tcpdump/HTTP
+Summary:
+Registers the real VyOSTraceExecutor using a mock command runner and local httptest
+upload server. Sends a trace command, waits for status and success result, and
+asserts that the command was run and output was uploaded successfully.
+
+Validates:
+  - real action mode wires real executor
+  - NATS command executes correctly and status sequence completed
+  - file uploaded to httptest upload server
+*/
+func TestIntegrationActionTraceFlowRealModeMocked(t *testing.T) {
+	url := startTestNATSServer(t)
+	cfg := mockedIntegrationCoreConfig(t, url)
+	target := mockedIntegrationTarget(t)
+	rpcID := "rpc-action-trace-real-mocked"
+
+	// Create httptest upload server
+	var uploadedContent []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseMultipartForm(10 << 20)
+		file, _, err := r.FormFile("file")
+		if err == nil {
+			defer file.Close()
+			uploadedContent, _ = io.ReadAll(file)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	runner := &integrationActionTraceCommandRunner{}
+
+	probe := newStartedProbe(t, cfg, target)
+	worker := newAgentCoreClient(t, cfg, "worker")
+	executor := actions.NewVyOSTraceExecutor(runner, server.Client())
+	registerActionWorker(t, worker, target, executor)
+	startAgentCoreClient(t, worker)
+	controller := newStartedClient(t, cfg, "controller")
+
+	// Payload matching the expected JSON
+	payload := json.RawMessage(fmt.Sprintf(`{"interface":"eth0","duration":5,"packets":20,"uri":%q}`, server.URL))
+
+	ack, err := controller.SubmitAction(context.Background(), agentcore.ActionCommand{
+		Version:     mockedIntegrationWireVersion,
+		RPCID:       rpcID,
+		Target:      target,
+		CommandType: "action",
+		Action:      actions.ActionTrace,
+		Payload:     payload,
+		Timestamp:   mockedIntegrationNow(),
+	})
+	if err != nil {
+		t.Fatalf("submit action: %v", err)
+	}
+
+	if ack.Subject != fmt.Sprintf(cfg.Subjects.ActionPattern, target, actions.ActionTrace) {
+		t.Fatalf("action ack subject got=%q want=%q", ack.Subject, fmt.Sprintf(cfg.Subjects.ActionPattern, target, actions.ActionTrace))
+	}
+
+	statuses := probe.waitStatuses(t, rpcID, "completed")
+	result := probe.waitResult(t, rpcID, "success")
+
+	assertStages(t, statuses, []string{"received", "executing", "completed"})
+	if result.CommandType != "action" || result.Action != actions.ActionTrace {
+		t.Fatalf("result metadata mismatch: %+v", result)
+	}
+
+	if string(uploadedContent) != "mock-pcap-data" {
+		t.Fatalf("uploaded content got=%q want=%q", string(uploadedContent), "mock-pcap-data")
 	}
 }
 
@@ -1108,11 +1211,13 @@ func (p *integrationProbe) assertNoResult(t *testing.T, rpcID, result string) {
 func registerConfigureWorker(t *testing.T, client *agentcore.Client, target string, renderer configure.Renderer, applier configure.ApplyEngine, stateStore configure.StateStore) *configure.Service {
 	t.Helper()
 
+	logger, _ := agent.NewLogger(config.LoggingConfig{Level: "debug", Format: "text"}, os.Stdout)
 	svc, err := configure.NewService(configure.Dependencies{
 		Client:      client,
 		StateStore:  stateStore,
 		Renderer:    renderer,
 		ApplyEngine: applier,
+		Logger:      logger,
 		Now:         mockedIntegrationNow,
 	})
 	if err != nil {
@@ -1127,8 +1232,10 @@ func registerConfigureWorker(t *testing.T, client *agentcore.Client, target stri
 func registerActionWorker(t *testing.T, client *agentcore.Client, target string, executor actions.Executor) *actions.Service {
 	t.Helper()
 
+	logger, _ := agent.NewLogger(config.LoggingConfig{Level: "debug", Format: "text"}, os.Stdout)
 	svc, err := actions.NewService(actions.Dependencies{
 		Client: client,
+		Logger: logger,
 		Enabled: []string{
 			actions.ActionTrace,
 		},
@@ -1543,7 +1650,8 @@ func newAgentCoreClient(t *testing.T, cfg agentcore.Config, name string) *agentc
 
 	cfg.AgentName = "mocked-integration-" + name
 	cfg.NATS.ClientName = "mocked-integration-" + name
-	client, err := agentcore.New(cfg)
+	logger, _ := agent.NewLogger(config.LoggingConfig{Level: "debug", Format: "text"}, os.Stdout)
+	client, err := agentcore.New(cfg, agentcore.WithLogger(logger))
 	if err != nil {
 		t.Fatalf("new agentcore client %q: %v", name, err)
 	}
