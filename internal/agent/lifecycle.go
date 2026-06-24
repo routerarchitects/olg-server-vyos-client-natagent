@@ -123,7 +123,20 @@ func (r *Runtime) Close(ctx context.Context) error {
 	}
 
 	r.cancel()
-	r.wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// all background goroutines finished cleanly
+	case <-ctx.Done():
+		r.logWarn("close context timed out or was cancelled before background tasks finished", "error", ctx.Err())
+		return fmt.Errorf("close: %w", ctx.Err())
+	}
 
 	r.logInfo("agentcore client closing", "target", r.appConfig.Agent.Target)
 	if err := r.client.Close(ctx); err != nil {

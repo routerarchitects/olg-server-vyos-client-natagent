@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -262,5 +263,94 @@ func TestRuntimeCloseCancelsActiveReconnectReconcile(t *testing.T) {
 	case <-closeDone:
 	case <-time.After(1 * time.Second):
 		t.Fatal("Close blocked and did not return (possibly didn't cancel context or wait properly)")
+	}
+}
+
+/*
+TC-AGENT-LIFE-011
+Type: Safety
+Title: Close() does not hang indefinitely when reconnect reconciliation goroutine is non-cooperative
+Summary:
+Starts the agent and triggers a reconnect-reconciliation goroutine that blocks indefinitely in stateStore.Load
+(ignoring the context cancel signal). Calling Close() with a context timeout should return a timeout error
+quickly instead of hanging forever.
+
+Validates:
+  - Close() handles non-cooperative/blocked background goroutines gracefully by returning a context timeout error.
+*/
+func TestRuntimeCloseHandlesNonCooperativeReconnectReconcile(t *testing.T) {
+	appCfg := config.DefaultAppConfig()
+	appCfg.Agent.Target = "vyos"
+	coreCfg := agentcore.Config{}
+
+	r, err := New(&appCfg, coreCfg)
+	if err != nil {
+		t.Fatalf("failed to create agent runtime: %v", err)
+	}
+
+	loadEntered := make(chan struct{})
+
+	// StateStore that blocks indefinitely and ignores context Done/cancel.
+	stateStore := &mockStateStore{
+		loadFunc: func(ctx context.Context) (state.State, error) {
+			close(loadEntered)
+			// Block forever, ignoring context Done.
+			select {}
+		},
+	}
+
+	client := &mockAgentCoreClient{}
+	rndr := &mockRenderer{}
+	apply := &mockApplyEngine{}
+
+	configureService, err := configure.NewService(configure.Dependencies{
+		Client:      client,
+		StateStore:  stateStore,
+		Renderer:    rndr,
+		ApplyEngine: apply,
+		Now:         r.now,
+	})
+	if err != nil {
+		t.Fatalf("failed to create configure service: %v", err)
+	}
+
+	r.configureService = configureService
+
+	// Simulate starting reconnect reconciliation goroutine
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		r.reconnectReconcileCount.Add(1)
+		_ = r.configureService.Reconcile(r.ctx, "vyos")
+	}()
+
+	// Wait for the state store Load to be entered and blocked
+	select {
+	case <-loadEntered:
+	case <-time.After(1 * time.Second):
+		t.Fatal("reconcile goroutine did not start or load state")
+	}
+
+	// Call Close with a 100ms timeout context
+	closeCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	closeDone := make(chan struct{})
+	var closeErr error
+	go func() {
+		closeErr = r.Close(closeCtx)
+		close(closeDone)
+	}()
+
+	select {
+	case <-closeDone:
+		if closeErr == nil {
+			t.Fatal("expected Close to return an error on timeout, got nil")
+		}
+		if !errors.Is(closeErr, context.DeadlineExceeded) && !strings.Contains(closeErr.Error(), "deadline exceeded") {
+			t.Fatalf("expected close error to be deadline exceeded, got: %v", closeErr)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Close hung and failed to return on context timeout within 500ms")
 	}
 }
